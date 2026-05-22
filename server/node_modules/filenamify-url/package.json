@@ -1,0 +1,42 @@
+{
+	"name": "filenamify-url",
+	"version": "2.1.2",
+	"description": "Convert a URL to a valid filename",
+	"license": "MIT",
+	"repository": "sindresorhus/filenamify-url",
+	"funding": "https://github.com/sponsors/sindresorhus",
+	"author": {
+		"name": "Sindre Sorhus",
+		"email": "sindresorhus@gmail.com",
+		"url": "https://sindresorhus.com"
+	},
+	"engines": {
+		"node": ">=8"
+	},
+	"scripts": {
+		"test": "xo && ava && tsd"
+	},
+	"files": [
+		"index.js",
+		"index.d.ts"
+	],
+	"keywords": [
+		"filename",
+		"file",
+		"name",
+		"string",
+		"path",
+		"convert",
+		"valid",
+		"url"
+	],
+	"dependencies": {
+		"filenamify": "^4.3.0",
+		"humanize-url": "^2.1.1"
+	},
+	"devDependencies": {
+		"ava": "^2.4.0",
+		"tsd": "^0.11.0",
+		"xo": "^0.25.3"
+	}
+}

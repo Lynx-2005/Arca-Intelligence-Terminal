@@ -1,0 +1,10 @@
+export declare function getLatestVersion(): Promise<string>;
+interface VersionCheckResult {
+    current: string;
+    latest: string;
+    isLatest: boolean;
+}
+export declare function versionCheck(): Promise<VersionCheckResult>;
+export declare function _clearCache(): void;
+export {};
+//# sourceMappingURL=versions.d.ts.map

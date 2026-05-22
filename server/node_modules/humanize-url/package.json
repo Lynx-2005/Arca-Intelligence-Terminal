@@ -1,0 +1,49 @@
+{
+	"name": "humanize-url",
+	"version": "2.1.1",
+	"description": "Humanize a URL: `https://sindresorhus.com` → `sindresorhus.com`",
+	"license": "MIT",
+	"repository": "sindresorhus/humanize-url",
+	"author": {
+		"name": "Sindre Sorhus",
+		"email": "sindresorhus@gmail.com",
+		"url": "sindresorhus.com"
+	},
+	"engines": {
+		"node": ">=8"
+	},
+	"scripts": {
+		"test": "xo && ava && tsd"
+	},
+	"files": [
+		"index.js",
+		"index.d.ts"
+	],
+	"keywords": [
+		"url",
+		"uri",
+		"address",
+		"string",
+		"normalize",
+		"normalise",
+		"normalization",
+		"normalisation",
+		"querystring",
+		"unicode",
+		"humanize",
+		"humanization",
+		"simple",
+		"simplify",
+		"human",
+		"pretty",
+		"prettify"
+	],
+	"dependencies": {
+		"normalize-url": "^4.5.1"
+	},
+	"devDependencies": {
+		"ava": "^1.4.1",
+		"tsd": "^0.7.2",
+		"xo": "^0.24.0"
+	}
+}

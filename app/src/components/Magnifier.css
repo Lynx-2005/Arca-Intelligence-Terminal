@@ -1,0 +1,200 @@
+/* Smart Magnifier Stylesheet */
+
+.magnifier-hud-wrapper {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+  z-index: 999999;
+}
+
+/* Lens body */
+.magnifier-lens {
+  position: absolute;
+  width: 250px;
+  height: 250px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(0, 229, 255, 0.7);
+  box-shadow: 
+    0 0 25px rgba(0, 229, 255, 0.25),
+    inset 0 0 20px rgba(0, 0, 0, 0.8);
+  overflow: hidden;
+  background: #030712;
+  backdrop-filter: blur(1.5px);
+  will-change: transform, left, top;
+  animation: lens-deploy 0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes lens-deploy {
+  0% {
+    transform: scale(0.4);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* Rendered DOM clone area */
+.magnifier-mirror {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  transform-origin: 0 0;
+}
+
+/* Convex glass reflection overlay */
+.magnifier-glass-glare {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border-radius: 50%;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0) 50%, rgba(0, 0, 0, 0.15) 100%);
+  pointer-events: none;
+  z-index: 10;
+  box-shadow: inset 0 2px 4px rgba(255, 255, 255, 0.1), inset 0 -2px 4px rgba(0, 0, 0, 0.4);
+}
+
+/* CRT monitor style scanlines */
+.magnifier-scanlines {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border-radius: 50%;
+  background: linear-gradient(
+    rgba(18, 16, 16, 0) 50%, 
+    rgba(0, 229, 255, 0.04) 50%
+  );
+  background-size: 100% 4px;
+  pointer-events: none;
+  z-index: 8;
+}
+
+/* Tactical HUD Crosshair */
+.magnifier-crosshair {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 100%;
+  height: 100%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  z-index: 9;
+}
+
+.magnifier-crosshair::before,
+.magnifier-crosshair::after {
+  content: '';
+  position: absolute;
+  background: rgba(0, 229, 255, 0.25);
+}
+
+/* Horizontal crosshair line */
+.magnifier-crosshair::before {
+  top: 50%;
+  left: 10%;
+  width: 80%;
+  height: 1px;
+}
+
+/* Vertical crosshair line */
+.magnifier-crosshair::after {
+  left: 50%;
+  top: 10%;
+  width: 1px;
+  height: 80%;
+}
+
+/* Tactical microticks */
+.magnifier-center-dot {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 4px;
+  height: 4px;
+  background: rgba(0, 229, 255, 0.85);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 0 6px rgba(0, 229, 255, 0.8);
+  z-index: 9;
+}
+
+/* Decorative outer rotating ring */
+.magnifier-rotating-ring {
+  position: absolute;
+  top: -8px;
+  left: -8px;
+  width: calc(100% + 16px);
+  height: calc(100% + 16px);
+  border-radius: 50%;
+  border: 1px dashed rgba(0, 229, 255, 0.35);
+  pointer-events: none;
+  animation: ring-rotate 25s linear infinite;
+  z-index: -1;
+}
+
+@keyframes ring-rotate {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Telemetry stats overlays */
+.magnifier-telemetry-badge {
+  position: absolute;
+  font-family: 'Courier New', Courier, monospace, 'Outfit';
+  font-size: 8px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: #00e5ff;
+  text-shadow: 0 0 4px rgba(0, 229, 255, 0.7);
+  pointer-events: none;
+  background: rgba(2, 6, 12, 0.8);
+  border: 1px solid rgba(0, 229, 255, 0.3);
+  padding: 2px 6px;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+
+/* Top Telemetry (Zoom & Lock Status) */
+.magnifier-badge-top {
+  top: -30px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+/* Bottom Telemetry (Active Element Label) */
+.magnifier-badge-bottom {
+  bottom: -30px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+/* Angle coordinate tags */
+.magnifier-badge-coords {
+  top: 50%;
+  right: -60px;
+  transform: translateY(-50%) rotate(90deg);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  color: var(--accent-amber);
+  text-shadow: 0 0 4px rgba(245, 158, 11, 0.7);
+}
+
+.magnifier-badge-coords-pinned {
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  color: var(--accent-red);
+  text-shadow: 0 0 4px rgba(239, 68, 68, 0.7);
+  animation: pulse-border 1.5s infinite;
+}
+
+@keyframes pulse-border {
+  0%, 100% { border-color: rgba(239, 68, 68, 0.4); }
+  50% { border-color: rgba(239, 68, 68, 0.9); }
+}
