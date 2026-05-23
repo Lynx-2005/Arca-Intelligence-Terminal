@@ -18,112 +18,167 @@ const OrderflowDepthPanel = ({ data }) => {
   const { book, footprint, aggression } = data;
 
   const footprintRows = useMemo(() => {
-    const maxVol = footprint.maxVol || 1;
     return footprint.buckets.map(bucket => {
-      const bidIntensity = Math.min(1, (bucket.sellVol || 0) / maxVol);
-      const askIntensity = Math.min(1, (bucket.buyVol || 0) / maxVol);
       const buyVol = bucket.buyVol || 0;
       const sellVol = bucket.sellVol || 0;
-      const showSellImbalance = sellVol >= 3 * buyVol && sellVol > 0;
-      const showBuyImbalance = buyVol >= 3 * sellVol && buyVol > 0;
+      const totalTraded = buyVol + sellVol;
+      const imbalancePct = totalTraded > 0 ? (buyVol / totalTraded) * 100 : 50;
+
       return {
         ...bucket,
-        bidIntensity,
-        askIntensity,
-        showSellImbalance,
-        showBuyImbalance
+        buyVol,
+        sellVol,
+        totalTraded,
+        imbalancePct
       };
     });
-  }, [footprint.buckets, footprint.maxVol]);
+  }, [footprint.buckets]);
+
+  // Compute max depth to scale background intensity for limit orders
+  const maxDepth = useMemo(() => {
+    return Math.max(
+      1,
+      ...footprintRows.map(b => Math.max(b.bidSize || 0, b.askSize || 0))
+    );
+  }, [footprintRows]);
+
+  const maxVolume = useMemo(() => {
+    return Math.max(
+      1,
+      ...footprintRows.map(b => Math.max(b.buyVol || 0, b.sellVol || 0))
+    );
+  }, [footprintRows]);
+
+  // Find the exact bucket price that is closest to the current mid price
+  const closestMidPrice = useMemo(() => {
+    if (!book.mid || footprintRows.length === 0) return null;
+    let closestPrice = footprintRows[0].price;
+    let minDiff = Math.abs(footprintRows[0].price - book.mid);
+    for (let i = 1; i < footprintRows.length; i++) {
+      const diff = Math.abs(footprintRows[i].price - book.mid);
+      if (diff < minDiff) {
+        minDiff = diff;
+        closestPrice = footprintRows[i].price;
+      }
+    }
+    return closestPrice;
+  }, [footprintRows, book.mid]);
 
   const aggressionColor = aggression.index >= 0 ? 'var(--status-up)' : 'var(--status-down)';
 
   return (
-    <div className="microstructure-container" style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#0b0b0b' }}>
-      <div className="micro-header" style={{ padding: '4px', borderBottom: '1px solid var(--panel-border)' }}>
-        <div className="micro-tab-buttons" style={{ display: 'flex', gap: '2px', borderBottom: '1px solid var(--panel-border)', paddingBottom: '4px' }}>
-          <button
-            className="micro-tab-btn active"
-            style={{
-              background: 'var(--accent-amber)',
-              color: '#000',
-              border: 'none',
-              padding: '4px 8px',
-              fontSize: '9px',
-              fontWeight: 'bold',
-              cursor: 'default',
-              fontFamily: 'var(--font-mono)'
-            }}
-          >
-            TAPE
-          </button>
-        </div>
-      </div>
+    <div className="microstructure-container dom-trader-panel" style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#0a0a0a' }}>
+      <style>{`
+        .dom-trader-grid::-webkit-scrollbar {
+          width: 12px !important;
+          background: rgba(255, 255, 255, 0.02);
+        }
+        .dom-trader-grid::-webkit-scrollbar-track {
+          background: rgba(255, 255, 255, 0.02);
+          border-radius: 6px;
+        }
+        .dom-trader-grid::-webkit-scrollbar-thumb {
+          background: rgba(255, 255, 255, 0.2) !important;
+          border-radius: 6px;
+          border: 3px solid #0a0a0a;
+        }
+        .dom-trader-grid::-webkit-scrollbar-thumb:hover {
+          background: rgba(255, 255, 255, 0.4) !important;
+        }
+      `}</style>
       
       <div className="micro-panel micro-footprint" style={{ flex: 1, display: 'flex', flexDirection: 'column', margin: 0, border: 'none', padding: '8px' }}>
         <div className="micro-panel-title">ORDERFLOW DEPTH TAPE</div>
-        <div className="micro-footprint-header-row jigsaw-header" style={{ marginBottom: '4px' }}>
-          <span className="jigsaw-col">BID VOL</span>
-          <span className="jigsaw-col">PRICE</span>
-          <span className="jigsaw-col">ASK VOL</span>
-          <span className="jigsaw-col">DELTA</span>
+        <div className="micro-footprint-header-row jigsaw-header" style={{ marginBottom: '4px', display: 'grid', gridTemplateColumns: '1fr 1fr 1.5fr 1fr 1fr 1.2fr 1.2fr 1fr', fontSize: '9px', textAlign: 'center', color: '#888', fontWeight: 'bold' }}>
+          <span>Buy</span>
+          <span>Bids</span>
+          <span>Price</span>
+          <span>Asks</span>
+          <span>Sell</span>
+          <span>Liq Chg</span>
+          <span>Imbal %</span>
+          <span>Volume</span>
         </div>
         
-        <div className="micro-footprint-grid jigsaw-grid" style={{ flex: 1, overflowY: 'auto' }}>
+        <div className="micro-footprint-grid jigsaw-grid dom-trader-grid" style={{ flex: 1, overflowY: 'auto', paddingRight: '4px' }}>
           {footprintRows.map((bucket, idx) => {
-            const isMidPrice = book.mid && Math.abs(bucket.price - book.mid) < 0.00001;
-            const bidBg = `rgba(255, 51, 51, ${Math.max(0.02, bucket.bidIntensity * 0.85)})`;
-            const askBg = `rgba(0, 196, 255, ${Math.max(0.02, bucket.askIntensity * 0.85)})`;
+            const isMidPrice = closestMidPrice !== null && Math.abs(bucket.price - closestMidPrice) < 0.000001;
             
+            const bidIntensity = Math.min(1, (bucket.bidSize || 0) / maxDepth);
+            const askIntensity = Math.min(1, (bucket.askSize || 0) / maxDepth);
+            
+            const buyIntensity = Math.min(1, (bucket.buyVol || 0) / maxVolume);
+            const sellIntensity = Math.min(1, (bucket.sellVol || 0) / maxVolume);
+
+            // Translucent bar backgrounds
+            const buyBg = `linear-gradient(to left, rgba(0, 255, 102, 0.25) ${buyIntensity * 100}%, transparent ${buyIntensity * 100}%)`;
+            const sellBg = `linear-gradient(to right, rgba(255, 51, 51, 0.25) ${sellIntensity * 100}%, transparent ${sellIntensity * 100}%)`;
+
+            // Depth bars (Resting Liquidity)
+            const bidBg = `linear-gradient(to left, rgba(0, 191, 255, 0.5) ${bidIntensity * 100}%, rgba(0, 191, 255, 0.1) ${bidIntensity * 100}%)`;
+            const askBg = `linear-gradient(to right, rgba(255, 140, 0, 0.5) ${askIntensity * 100}%, rgba(255, 140, 0, 0.1) ${askIntensity * 100}%)`;
+
             return (
               <div
                 key={`fp-${idx}`}
                 className={`micro-footprint-row jigsaw-row ${isMidPrice ? 'jigsaw-row-mid' : ''}`}
                 style={{ 
                   display: 'grid', 
-                  gridTemplateColumns: '1fr 1fr 1fr 1fr', 
-                  gap: '2px', 
-                  marginBottom: '2px',
+                  gridTemplateColumns: '1fr 1fr 1.5fr 1fr 1fr 1.2fr 1.2fr 1fr', 
+                  gap: '1px', 
+                  marginBottom: '1px',
                   fontSize: '11px',
                   fontFamily: 'monospace',
                   textAlign: 'center',
-                  lineHeight: '24px'
+                  lineHeight: '20px',
+                  backgroundColor: isMidPrice ? 'rgba(255, 176, 0, 0.08)' : 'transparent'
                 }}
               >
-                {/* Bid Vol (Sell side) */}
-                <div 
-                  className={`jigsaw-cell-bid ${bucket.showSellImbalance ? 'imbalance-sell' : ''}`}
-                  style={{ backgroundColor: bidBg, borderRight: bucket.showSellImbalance ? '2px solid #ff3333' : 'none' }}
-                >
-                  <span style={{ fontWeight: bucket.bidIntensity > 0.5 ? 'bold' : 'normal', color: bucket.bidIntensity > 0.5 ? '#fff' : '#ccc' }}>
-                    {formatSize(bucket.sellVol)}
-                  </span>
+                {/* Buy */}
+                <div style={{ color: '#00ff66', background: buyBg }}>
+                  {formatSize(bucket.buyVol)}
+                </div>
+                
+                {/* Bids */}
+                <div style={{ background: bidBg, color: '#fff' }}>
+                  {formatSize(bucket.bidSize)}
                 </div>
 
                 {/* Price */}
-                <div 
-                  className="jigsaw-cell-price"
-                  style={{ backgroundColor: isMidPrice ? 'rgba(255, 255, 255, 0.1)' : 'transparent', color: isMidPrice ? '#fff' : '#aaa', fontWeight: isMidPrice ? 'bold' : 'normal' }}
-                >
+                <div style={{ 
+                  backgroundColor: isMidPrice ? 'var(--accent-amber)' : '#111', 
+                  color: isMidPrice ? '#000' : '#aaa', 
+                  fontWeight: 'bold',
+                  boxShadow: isMidPrice ? '0 0 8px rgba(255, 176, 0, 0.5)' : 'none',
+                  zIndex: isMidPrice ? 1 : 'auto',
+                  borderRadius: isMidPrice ? '2px' : '0'
+                }}>
                   {formatPrice(bucket.price)}
                 </div>
 
-                {/* Ask Vol (Buy side) */}
-                <div 
-                  className={`jigsaw-cell-ask ${bucket.showBuyImbalance ? 'imbalance-buy' : ''}`}
-                  style={{ backgroundColor: askBg, borderLeft: bucket.showBuyImbalance ? '2px solid #00c4ff' : 'none' }}
-                >
-                  <span style={{ fontWeight: bucket.askIntensity > 0.5 ? 'bold' : 'normal', color: bucket.askIntensity > 0.5 ? '#fff' : '#ccc' }}>
-                    {formatSize(bucket.buyVol)}
-                  </span>
+                {/* Asks */}
+                <div style={{ background: askBg, color: '#fff' }}>
+                  {formatSize(bucket.askSize)}
                 </div>
 
-                {/* Delta */}
-                <div 
-                  className="jigsaw-cell-delta"
-                  style={{ color: bucket.delta > 0 ? '#00c4ff' : bucket.delta < 0 ? '#ff3333' : '#666' }}
-                >
-                  {bucket.delta >= 0 ? '+' : ''}{formatSize(bucket.delta)}
+                {/* Sell */}
+                <div style={{ color: '#ff3333', background: sellBg }}>
+                  {formatSize(bucket.sellVol)}
+                </div>
+
+                {/* Liq Chg */}
+                <div style={{ color: bucket.liqChange > 0 ? '#00ff66' : bucket.liqChange < 0 ? '#ff3333' : '#666' }}>
+                  {bucket.liqChange > 0 ? '+' : ''}{formatSize(bucket.liqChange)}
+                </div>
+
+                {/* Imbalance % */}
+                <div style={{ color: bucket.imbalancePct > 55 ? '#00ff66' : bucket.imbalancePct < 45 ? '#ff3333' : '#888' }}>
+                  {bucket.totalTraded > 0 ? bucket.imbalancePct.toFixed(1) : '--'}
+                </div>
+
+                {/* Volume */}
+                <div style={{ color: '#fff', fontWeight: 'bold' }}>
+                  {formatSize(bucket.volume)}
                 </div>
               </div>
             );

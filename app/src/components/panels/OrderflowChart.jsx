@@ -10,7 +10,7 @@ const OrderflowChart = ({ ticker }) => {
   const rendererRef = useRef(null);
   const [timeframe, setTimeframe] = useState('1m');
 
-  const { dataRef, domRef, status, tradeCount } = useOrderflowData(ticker, timeframe);
+  const { dataRef, domRef, status, tradeCount, optionsLevels } = useOrderflowData(ticker, timeframe);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -22,7 +22,7 @@ const OrderflowChart = ({ ticker }) => {
       rendererRef.current = null;
     }
 
-    const renderer = new OrderflowRenderer(canvas, dataRef, domRef);
+    const renderer = new OrderflowRenderer(canvas, dataRef, domRef, optionsLevels);
     rendererRef.current = renderer;
     renderer.start();
 
@@ -33,7 +33,14 @@ const OrderflowChart = ({ ticker }) => {
         rendererRef.current = null;
       }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ticker, timeframe, dataRef, domRef]);
+
+  useEffect(() => {
+    if (rendererRef.current) {
+      rendererRef.current.setOptionsLevels(optionsLevels);
+    }
+  }, [optionsLevels]);
 
   const statusColor = status === 'live'
     ? 'var(--status-up)'

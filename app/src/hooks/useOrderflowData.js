@@ -36,6 +36,11 @@ const createCandle = (startTime, firstPrice, tickSz) => ({
   maxLevelVol: 0
 });
 
+const isCryptoTicker = (t) => {
+  const s = (t || '').toUpperCase();
+  return s.includes('-') || s.endsWith('USDT') || s.endsWith('USD') || s.endsWith('BTC') || s.endsWith('ETH');
+};
+
 export const useOrderflowData = (ticker, timeframe) => {
   const dataRef = useRef([]);
   const domRef = useRef({ bids: [], asks: [], bestBid: 0, bestAsk: 0 });
@@ -43,21 +48,73 @@ export const useOrderflowData = (ticker, timeframe) => {
   const [tradeCount, setTradeCount] = useState(0);
   const wsRef = useRef(null);
   const tickCountRef = useRef(0);
+  const syncIntervalRef = useRef(null);
+  const optionsIntervalRef = useRef(null);
+  const [optionsLevels, setOptionsLevels] = useState([]);
 
   useEffect(() => {
     if (!ticker) return;
 
+    let active = true;
+
+    // Clear data so we don't mix symbols
     dataRef.current = [];
     domRef.current = { bids: [], asks: [], bestBid: 0, bestAsk: 0 };
-    tickCountRef.current = 0;
-    setTradeCount(0);
     setStatus('connecting');
+    setTradeCount(0);
+    tickCountRef.current = 0;
 
     const bucketMs = TF_MAP[timeframe] || 60000;
 
+    // Load persisted footprint data from server (survives browser refresh)
+    const loadPersistedData = async () => {
+      try {
+        const res = await fetch(`http://localhost:3001/api/footprint/${encodeURIComponent(ticker)}?timeframe=${timeframe}`);
+        if (!active) return;
+        if (res.ok) {
+          const result = await res.json();
+          if (result.candles && result.candles.length > 0) {
+            // Merge server candles with any live candles already accumulated
+            const existingTimes = new Set(dataRef.current.map(c => c.time));
+            const serverCandles = result.candles.filter(c => !existingTimes.has(c.time));
+            
+            // Add ticks array to server candles (they don't have it)
+            serverCandles.forEach(c => {
+              if (!c.ticks) c.ticks = [];
+            });
+
+            if (dataRef.current.length === 0) {
+              dataRef.current = [...serverCandles];
+            } else {
+              // Merge: server candles first, then live candles
+              const mergedTimes = new Set();
+              const merged = [];
+              for (const c of [...serverCandles, ...dataRef.current]) {
+                if (!mergedTimes.has(c.time)) {
+                  merged.push(c);
+                  mergedTimes.add(c.time);
+                }
+              }
+              merged.sort((a, b) => a.time - b.time);
+              dataRef.current = merged;
+            }
+
+            tickCountRef.current = Math.max(tickCountRef.current, result.tickCount || 0);
+            setTradeCount(tickCountRef.current);
+            console.log(`[Orderflow] Loaded ${result.candles.length} persisted candles for ${ticker} (${timeframe})`);
+          }
+        }
+      } catch (err) {
+        console.warn('[Orderflow] Failed to load persisted footprint data:', err.message);
+      }
+    };
+    loadPersistedData();
+
+    // Also load historical candle data (without footprint) as a fallback
     const initData = async () => {
       try {
         const history = await ApiService.getHistoricalData(ticker, timeframe);
+        if (!active) return;
         if (history && history.length > 0) {
           const isFiniteNumber = value => typeof value === 'number' && Number.isFinite(value);
           const historyCandles = history
@@ -89,9 +146,28 @@ export const useOrderflowData = (ticker, timeframe) => {
           if (historyCandles.length > 0) {
             const liveCandles = dataRef.current;
             if (liveCandles.length > 0) {
-              const lastHistTime = historyCandles[historyCandles.length - 1].time;
-              const liveFiltered = liveCandles.filter(c => c.time > lastHistTime);
-              dataRef.current = [...historyCandles, ...liveFiltered];
+              // History is the base, overlay with live/persisted candles that have footprint data
+              const liveTimesMap = new Map(liveCandles.map(c => [c.time, c]));
+              const merged = [];
+              const seenTimes = new Set();
+
+              for (const hc of historyCandles) {
+                if (liveTimesMap.has(hc.time)) {
+                  // Prefer the live/persisted candle (has footprint)
+                  merged.push(liveTimesMap.get(hc.time));
+                } else {
+                  merged.push(hc);
+                }
+                seenTimes.add(hc.time);
+              }
+              // Append any live candles newer than history
+              for (const lc of liveCandles) {
+                if (!seenTimes.has(lc.time)) {
+                  merged.push(lc);
+                }
+              }
+              merged.sort((a, b) => a.time - b.time);
+              dataRef.current = merged;
             } else {
               dataRef.current = historyCandles;
             }
@@ -103,11 +179,6 @@ export const useOrderflowData = (ticker, timeframe) => {
     };
     initData();
 
-    const isCrypto = (t) => {
-      const s = (t || '').toUpperCase();
-      return s.includes('-') || s.endsWith('USDT') || s.endsWith('USD') || s.endsWith('BTC') || s.endsWith('ETH');
-    };
-
     const toBinanceSymbol = (t) => {
       const s = (t || '').toUpperCase();
       if (s.includes('-')) {
@@ -118,7 +189,7 @@ export const useOrderflowData = (ticker, timeframe) => {
       return s;
     };
 
-    const crypto = isCrypto(ticker);
+    const crypto = isCryptoTicker(ticker);
     let wsUrl = '';
     if (crypto) {
       const binanceSymbol = toBinanceSymbol(ticker).toLowerCase();
@@ -188,13 +259,13 @@ export const useOrderflowData = (ticker, timeframe) => {
         .map(([p, s]) => ({ price: parseFloat(p), size: parseFloat(s) }))
         .filter(r => r.size > 0)
         .sort((a, b) => b.price - a.price)
-        .slice(0, 20);
+        .slice(0, 10);
 
       const asks = asksRaw
         .map(([p, s]) => ({ price: parseFloat(p), size: parseFloat(s) }))
         .filter(r => r.size > 0)
         .sort((a, b) => a.price - b.price)
-        .slice(0, 20);
+        .slice(0, 10);
 
       // Add cumulative
       let cumBid = 0;
@@ -251,13 +322,79 @@ export const useOrderflowData = (ticker, timeframe) => {
       if (status !== 'error') setStatus('disconnected');
     };
 
+    // Periodically sync footprint data back to server (every 30s)
+    // This ensures non-crypto tickers also persist their data
+    syncIntervalRef.current = setInterval(() => {
+      if (dataRef.current.length > 0) {
+        // Only sync candles that have footprint data (trade-by-trade built)
+        const candlesWithFootprint = dataRef.current.filter(c => 
+          Object.keys(c.footprint).length > 0
+        );
+        if (candlesWithFootprint.length > 0) {
+          // Strip ticks array to reduce payload size
+          const stripped = candlesWithFootprint.map(c => ({
+            ...c,
+            ticks: undefined
+          }));
+          fetch(`http://localhost:3001/api/footprint/${encodeURIComponent(ticker)}?timeframe=${timeframe}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ candles: stripped, tickCount: tickCountRef.current })
+          }).catch(() => {});
+        }
+      }
+    }, 30000);
+
+    const fetchOptionsLevels = async () => {
+      try {
+        const res = await fetch(`http://localhost:3001/api/options-levels?ticker=${encodeURIComponent(ticker)}`);
+        if (!active) return;
+        if (res.ok) {
+          const levels = await res.json();
+          setOptionsLevels(levels || []);
+        }
+      } catch (err) {
+        console.warn('Failed to fetch options levels:', err);
+      }
+    };
+    
+    // Initial fetch and poll every 60s
+    fetchOptionsLevels();
+    optionsIntervalRef.current = setInterval(fetchOptionsLevels, 60000);
+
     return () => {
+      active = false;
       if (wsRef.current) {
         wsRef.current.close();
         wsRef.current = null;
       }
+      if (syncIntervalRef.current) {
+        clearInterval(syncIntervalRef.current);
+        syncIntervalRef.current = null;
+      }
+      if (optionsIntervalRef.current) {
+        clearInterval(optionsIntervalRef.current);
+        optionsIntervalRef.current = null;
+      }
+      // Final sync on cleanup
+      if (dataRef.current.length > 0) {
+        const candlesWithFootprint = dataRef.current.filter(c => 
+          Object.keys(c.footprint).length > 0
+        );
+        if (candlesWithFootprint.length > 0) {
+          const stripped = candlesWithFootprint.map(c => ({
+            ...c,
+            ticks: undefined
+          }));
+          fetch(`http://localhost:3001/api/footprint/${encodeURIComponent(ticker)}?timeframe=${timeframe}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ candles: stripped, tickCount: tickCountRef.current })
+          }).catch(() => {});
+        }
+      }
     };
   }, [ticker, timeframe]);
 
-  return { dataRef, domRef, status, tradeCount };
+  return { dataRef, domRef, status, tradeCount, optionsLevels };
 };

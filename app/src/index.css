@@ -2413,8 +2413,7 @@ html, body, #root {
   left: 0;
   width: 200px;
   height: calc(100% - 130px);
-  background: rgba(10, 10, 12, 0.2);
-  backdrop-filter: blur(2px);
+  background: rgba(10, 10, 12, 0.5);
   border-right: 1px solid rgba(255, 176, 0, 0.1);
   display: flex;
   flex-direction: column;
@@ -2451,6 +2450,10 @@ html, body, #root {
   display: flex;
   flex-direction: column;
   animation: marquee-vertical 120s linear infinite;
+  will-change: transform;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  -webkit-font-smoothing: antialiased;
 }
 
 .intel-hud-left-scroll:hover {
@@ -2468,9 +2471,9 @@ html, body, #root {
   gap: 8px;
   margin-bottom: 20px;
   font-family: 'JetBrains Mono', monospace;
-  font-size: 0.7rem;
+  font-size: 0.8rem;
   line-height: 1.4;
-  color: var(--text-secondary);
+  color: #d8d8d8; /* Increased brightness */
 }
 
 .intel-hud-ticker-item .severity-dot {

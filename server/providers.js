@@ -200,26 +200,6 @@ class UpstoxProvider extends BaseProvider {
 // US BROKERS (L1 / L2)
 // =========================================================================
 
-class IBKRProvider extends BaseProvider {
-  isConfigured() { return !!process.env.IB_PORT; }
-  _doSubscribe(ticker) {
-    if (!this.ws) {
-      const port = parseInt(process.env.IB_PORT) || 7497;
-      this.ws = new net.Socket();
-      this.ws.connect(port, '127.0.0.1', () => {
-        this.broadcastStatus(ticker, { state: 'live', message: `${this.name} LIVE (${ticker})` });
-        // TWS handshake and reqMktDepth omitted for brevity
-      });
-      this.ws.on('error', (err) => {
-        this.broadcastError(ticker, err.message);
-        this.ws.destroy();
-        this.ws = null;
-      });
-      this.ws.on('close', () => this.ws = null);
-    }
-  }
-}
-
 class AlpacaProvider extends BaseProvider {
   isConfigured() { return !!(process.env.ALPACA_API_KEY && process.env.ALPACA_SECRET_KEY); }
   _doSubscribe(ticker) {
@@ -347,7 +327,6 @@ class ProviderManager {
       new UpstoxProvider('UPSTOX')
     ];
     this.usProviders = [
-      new IBKRProvider('IBKR'),
       new AlpacaProvider('ALPACA'),
       new PolygonProvider('POLYGON'),
       new TradierProvider('TRADIER'),

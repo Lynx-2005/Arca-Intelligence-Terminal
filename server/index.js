@@ -20,11 +20,362 @@ protobuf.load(path.join(__dirname, 'PricingData.proto'), (err, root) => {
 
 // Initialize yahoo-finance2 instance with custom validation configurations
 const yahooFinance = new YF();
+const { getOptionsLevels } = require('./optionsEngine');
+
 const app = express();
 const PORT = 3001;
+const SESSION_ID = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+const SESSION_STARTED_AT = new Date().toISOString();
+
+const isCryptoTicker = (ticker) => {
+  if (!ticker) return false;
+  const symbol = ticker.trim().toUpperCase();
+  if (symbol.includes('-')) {
+    const parts = symbol.split('-');
+    if (parts.length !== 2) return false;
+    const quote = parts[1];
+    return ['USD', 'USDT', 'USDC', 'BUSD', 'EUR', 'BTC', 'ETH'].includes(quote);
+  }
+  if (symbol.endsWith('USDT') || symbol.endsWith('USDC')) return true;
+  if (symbol.endsWith('USD') && symbol.length > 3) return true;
+  return false;
+};
+
+const toBinanceSymbol = (ticker) => {
+  const symbol = (ticker || '').trim().toUpperCase();
+  if (symbol.includes('-')) {
+    const [base, quote] = symbol.split('-');
+    if (quote === 'USD') return `${base}USDT`;
+    return `${base}${quote}`;
+  }
+  if (symbol.endsWith('USD') && symbol.length > 3) {
+    return `${symbol.slice(0, -3)}USDT`;
+  }
+  return symbol;
+};
+
+const mapBinanceInterval = (interval) => {
+  const safe = (interval || '').toLowerCase();
+  if (safe === '1wk') return '1w';
+  return safe || '1m';
+};
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
+
+// ═══════════════════════════════════════════════════════════════
+// SERVER-SIDE FOOTPRINT DATA STORE
+// Accumulates orderflow candle data in memory so it persists
+// across browser refreshes. Only clears on server restart.
+// ═══════════════════════════════════════════════════════════════
+
+const footprintStore = {
+  // ticker -> { timeframe -> { candles: [], tickCount: number, lastUpdate: number } }
+  data: new Map(),
+  // ticker -> WebSocket (persistent Binance connection)
+  cryptoSockets: new Map(),
+  MAX_CANDLES: 500,
+
+  getTickSize(price) {
+    if (price >= 10000) return 10;
+    if (price >= 1000) return 1;
+    if (price >= 100) return 0.5;
+    if (price >= 10) return 0.1;
+    return 0.01;
+  },
+
+  aggregateCandles(sourceCandles, targetBucketMs) {
+    if (!sourceCandles || sourceCandles.length === 0) return [];
+    
+    const aggregated = [];
+    let currentAgg = null;
+
+    for (const c of sourceCandles) {
+      const aggTime = Math.floor(c.time / targetBucketMs) * targetBucketMs;
+      
+      if (!currentAgg || currentAgg.time !== aggTime) {
+        currentAgg = {
+          time: aggTime,
+          open: c.open,
+          high: c.high,
+          low: c.low,
+          close: c.close,
+          volume: c.volume,
+          buyVolume: c.buyVolume || 0,
+          sellVolume: c.sellVolume || 0,
+          delta: c.delta || 0,
+          tradeCount: c.tradeCount || 0,
+          tickSize: c.tickSize,
+          footprint: JSON.parse(JSON.stringify(c.footprint || {})),
+          maxLevelVol: c.maxLevelVol || 0
+        };
+        aggregated.push(currentAgg);
+      } else {
+        currentAgg.high = Math.max(currentAgg.high, c.high);
+        currentAgg.low = Math.min(currentAgg.low, c.low);
+        currentAgg.close = c.close;
+        currentAgg.volume += c.volume;
+        currentAgg.buyVolume += (c.buyVolume || 0);
+        currentAgg.sellVolume += (c.sellVolume || 0);
+        currentAgg.delta += (c.delta || 0);
+        currentAgg.tradeCount += (c.tradeCount || 0);
+        
+        if (c.footprint) {
+          for (const [price, fp] of Object.entries(c.footprint)) {
+            if (!currentAgg.footprint[price]) {
+              currentAgg.footprint[price] = { bid: 0, ask: 0, delta: 0, total: 0 };
+            }
+            currentAgg.footprint[price].bid += fp.bid;
+            currentAgg.footprint[price].ask += fp.ask;
+            currentAgg.footprint[price].delta += fp.delta;
+            currentAgg.footprint[price].total += fp.total;
+            if (currentAgg.footprint[price].total > currentAgg.maxLevelVol) {
+              currentAgg.maxLevelVol = currentAgg.footprint[price].total;
+            }
+          }
+        }
+      }
+    }
+    return aggregated;
+  },
+
+  bucketPrice(price, tickSz) {
+    return Math.floor(price / tickSz) * tickSz;
+  },
+
+  getStore(ticker, timeframe) {
+    const key = `${ticker}__${timeframe}`;
+    if (!this.data.has(key)) {
+      this.data.set(key, { candles: [], tickCount: 0, lastUpdate: Date.now() });
+    }
+    return this.data.get(key);
+  },
+
+  processTick(ticker, timeframe, price, vol, tradeTime, isBuyerMaker) {
+    const TF_MAP = { '1m': 60000, '5m': 300000, '15m': 900000 };
+    const bucketMs = TF_MAP[timeframe] || 60000;
+    const store = this.getStore(ticker, timeframe);
+    const candles = store.candles;
+    const candleStart = Math.floor(tradeTime / bucketMs) * bucketMs;
+    const tickSz = this.getTickSize(price);
+    const bucket = this.bucketPrice(price, tickSz);
+    const priceKey = bucket.toFixed(2);
+    const isBuy = !isBuyerMaker;
+    const deltaVol = isBuy ? vol : -vol;
+
+    let candle;
+    if (candles.length === 0 || candles[candles.length - 1].time !== candleStart) {
+      candle = {
+        time: candleStart,
+        open: price, high: price, low: price, close: price,
+        volume: 0, buyVolume: 0, sellVolume: 0, delta: 0,
+        tradeCount: 0, tickSize: tickSz, footprint: {}, maxLevelVol: 0
+      };
+      candles.push(candle);
+      if (candles.length > this.MAX_CANDLES) candles.shift();
+    } else {
+      candle = candles[candles.length - 1];
+    }
+
+    candle.high = Math.max(candle.high, price);
+    candle.low = Math.min(candle.low, price);
+    candle.close = price;
+    candle.volume += vol;
+    candle.delta += deltaVol;
+    candle.tradeCount++;
+    if (isBuy) candle.buyVolume += vol;
+    else candle.sellVolume += vol;
+
+    if (!candle.footprint[priceKey]) {
+      candle.footprint[priceKey] = { bid: 0, ask: 0, delta: 0, total: 0 };
+    }
+    const fp = candle.footprint[priceKey];
+    if (isBuy) fp.ask += vol;
+    else fp.bid += vol;
+    fp.delta += deltaVol;
+    fp.total += vol;
+
+    if (fp.total > candle.maxLevelVol) {
+      candle.maxLevelVol = fp.total;
+    }
+
+    store.tickCount++;
+    store.lastUpdate = Date.now();
+  },
+
+  // Start a persistent Binance WebSocket for a crypto ticker
+  ensureCryptoStream(ticker) {
+    const upperTicker = ticker.toUpperCase().trim();
+    if (this.cryptoSockets.has(upperTicker)) return; // already connected
+
+    if (!isCryptoTicker(upperTicker)) return;
+
+    const binanceSymbol = toBinanceSymbol(upperTicker).toLowerCase();
+    const wsUrl = `wss://stream.binance.com:9443/stream?streams=${binanceSymbol}@trade`;
+
+    console.log(`[FootprintStore] Starting persistent Binance stream for ${upperTicker}`);
+    let ws;
+    const connect = () => {
+      ws = new (require('ws'))(wsUrl);
+      this.cryptoSockets.set(upperTicker, ws);
+
+      ws.on('message', (raw) => {
+        try {
+          const payload = JSON.parse(raw);
+          const data = payload.data || payload;
+          if (data.e === 'trade') {
+            const price = parseFloat(data.p);
+            const vol = parseFloat(data.q);
+            const tradeTime = data.T;
+            const isBuyerMaker = data.m;
+            if (price > 0 && vol > 0 && tradeTime > 0) {
+              // Accumulate into all timeframes
+              ['1m', '5m', '15m'].forEach(tf => {
+                this.processTick(upperTicker, tf, price, vol, tradeTime, isBuyerMaker);
+              });
+            }
+          }
+        } catch (_) {}
+      });
+
+      ws.on('close', () => {
+        console.log(`[FootprintStore] Binance stream closed for ${upperTicker}, reconnecting in 3s...`);
+        this.cryptoSockets.delete(upperTicker);
+        setTimeout(() => {
+          if (!this.cryptoSockets.has(upperTicker)) {
+            connect();
+          }
+        }, 3000);
+      });
+
+      ws.on('error', (err) => {
+        console.warn(`[FootprintStore] Binance stream error for ${upperTicker}:`, err.message);
+      });
+    };
+
+    connect();
+  }
+};
+
+// REST endpoint to retrieve accumulated footprint data
+app.get('/api/footprint/:ticker', (req, res) => {
+  const { ticker } = req.params;
+  const timeframe = req.query.timeframe || '1m';
+  const upperTicker = ticker.toUpperCase().trim();
+
+  // Ensure persistent stream is running for this crypto ticker
+  if (isCryptoTicker(upperTicker)) {
+    footprintStore.ensureCryptoStream(upperTicker);
+  }
+
+  const store = footprintStore.getStore(upperTicker, timeframe);
+
+  // Aggregate from 1m if requesting higher timeframe
+  if (timeframe !== '1m') {
+    const TF_MAP = { '1m': 60000, '5m': 300000, '15m': 900000 };
+    const targetMs = TF_MAP[timeframe];
+    const store1m = footprintStore.getStore(upperTicker, '1m');
+    
+    if (store1m.candles.length > 0 && targetMs) {
+      const aggregated = footprintStore.aggregateCandles(store1m.candles, targetMs);
+      const existingTimes = new Set(store.candles.map(c => c.time));
+      
+      for (const agg of aggregated) {
+        if (!existingTimes.has(agg.time)) {
+          store.candles.push(agg);
+          existingTimes.add(agg.time);
+        } else {
+          // Update if aggregated has more volume (e.g. from historical local data)
+          const idx = store.candles.findIndex(c => c.time === agg.time);
+          if (agg.volume > store.candles[idx].volume) {
+            store.candles[idx] = agg;
+          }
+        }
+      }
+      store.candles.sort((a, b) => a.time - b.time);
+    }
+  }
+
+  res.json({
+    candles: store.candles,
+    tickCount: store.tickCount,
+    lastUpdate: store.lastUpdate,
+    sessionId: SESSION_ID
+  });
+});
+
+// POST endpoint to allow client to push footprint data back to server (for non-crypto tickers)
+app.post('/api/footprint/:ticker', (req, res) => {
+  const { ticker } = req.params;
+  const timeframe = req.query.timeframe || '1m';
+  const upperTicker = ticker.toUpperCase().trim();
+  const { candles, tickCount } = req.body;
+
+  if (candles && Array.isArray(candles)) {
+    const store = footprintStore.getStore(upperTicker, timeframe);
+    // Merge: keep candles with newer timestamps, append new ones
+    const existingTimes = new Set(store.candles.map(c => c.time));
+    for (const candle of candles) {
+      if (!existingTimes.has(candle.time)) {
+        store.candles.push(candle);
+        existingTimes.add(candle.time);
+      } else {
+        // Update existing candle with latest data
+        const idx = store.candles.findIndex(c => c.time === candle.time);
+        if (idx >= 0) store.candles[idx] = candle;
+      }
+    }
+    // Sort and trim
+    store.candles.sort((a, b) => a.time - b.time);
+    if (store.candles.length > footprintStore.MAX_CANDLES) {
+      store.candles.splice(0, store.candles.length - footprintStore.MAX_CANDLES);
+    }
+    if (tickCount) store.tickCount = Math.max(store.tickCount, tickCount);
+    store.lastUpdate = Date.now();
+  }
+  res.json({ ok: true });
+});
+
+app.get('/api/session', (req, res) => {
+  res.json({ id: SESSION_ID, startedAt: SESSION_STARTED_AT });
+});
+
+// Fetch crypto historical candles directly from Binance for parity with live feed
+app.get('/api/crypto/history/:ticker', async (req, res) => {
+  try {
+    const { ticker } = req.params;
+    if (!isCryptoTicker(ticker)) {
+      return res.status(400).json({ error: 'Not a crypto ticker' });
+    }
+
+    const interval = mapBinanceInterval(req.query.interval || '1m');
+    const limitMap = { '1m': 1000, '5m': 1000, '15m': 1000, '1h': 1000, '1d': 365, '1w': 260 };
+    const limit = Number(req.query.limit) || limitMap[interval] || 500;
+    const symbol = toBinanceSymbol(ticker);
+
+    const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
+    const response = await fetch(url);
+    if (!response.ok) {
+      return res.status(response.status).json({ error: 'Binance history error' });
+    }
+    const data = await response.json();
+    const formatted = Array.isArray(data)
+      ? data.map(row => ({
+          time: Math.floor(Number(row[0]) / 1000),
+          open: Number(row[1]),
+          high: Number(row[2]),
+          low: Number(row[3]),
+          close: Number(row[4]),
+          volume: Number(row[5])
+        }))
+      : [];
+
+    res.json(formatted);
+  } catch (error) {
+    console.error('Crypto history error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
 
 // Fetch current quote
 app.get('/api/quote/:ticker', async (req, res) => {
@@ -437,7 +788,169 @@ app.post('/api/chat', async (req, res) => {
   }
 });
 
-// Fetch global indices
+// Deribit Options Cache
+const optionsCache = new Map();
+
+// Fetch Deribit Options Support/Resistance
+app.get('/api/options-levels', async (req, res) => {
+  try {
+    const ticker = req.query.ticker;
+    if (!ticker) {
+      return res.json([]);
+    }
+
+    if (!isCryptoTicker(ticker)) {
+      // Use optionsEngine for US/Indian equities
+      const levels = await getOptionsLevels(ticker);
+      return res.json(levels || []);
+    }
+
+    const currency = ticker.toUpperCase().includes('BTC') ? 'BTC' : ticker.toUpperCase().includes('ETH') ? 'ETH' : null;
+    if (!currency) return res.json([]);
+
+    // Check cache
+    const cached = optionsCache.get(currency);
+    if (cached && Date.now() - cached.timestamp < 60000) {
+      return res.json(cached.data);
+    }
+
+    const response = await fetch(`https://deribit.com/api/v2/public/get_book_summary_by_currency?currency=${currency}&kind=option`);
+    if (!response.ok) throw new Error(`Deribit API Error: ${response.status}`);
+    const data = await response.json();
+    if (!data || !data.result) return res.json([]);
+
+    const expiries = new Set();
+    const parsedOptions = [];
+
+    data.result.forEach(opt => {
+      const parts = opt.instrument_name.split('-');
+      if (parts.length !== 4) return;
+      const [_, expStr, strikeStr, type] = parts;
+      
+      const strike = parseFloat(strikeStr);
+      const oi = parseFloat(opt.open_interest);
+      
+      if (oi > 0) {
+        expiries.add(expStr);
+        parsedOptions.push({ expStr, strike, type, oi });
+      }
+    });
+
+    const parseExpDate = (expStr) => {
+      const day = parseInt(expStr.slice(0, 2), 10);
+      const monthStr = expStr.slice(2, 5);
+      const year = 2000 + parseInt(expStr.slice(5, 7), 10);
+      const months = { 'JAN': 0, 'FEB': 1, 'MAR': 2, 'APR': 3, 'MAY': 4, 'JUN': 5, 'JUL': 6, 'AUG': 7, 'SEP': 8, 'OCT': 9, 'NOV': 10, 'DEC': 11 };
+      return new Date(Date.UTC(year, months[monthStr], day, 8, 0, 0));
+    };
+
+    const uniqueExpiries = Array.from(expiries).map(expStr => ({
+      expStr,
+      date: parseExpDate(expStr)
+    })).sort((a, b) => a.date - b.date);
+
+    if (uniqueExpiries.length === 0) return res.json([]);
+
+    const daily = uniqueExpiries[0];
+    
+    let weekly = null;
+    for (let i = 1; i < uniqueExpiries.length; i++) {
+      if (uniqueExpiries[i].date.getUTCDay() === 5) {
+        weekly = uniqueExpiries[i];
+        break;
+      }
+    }
+
+    let monthly = null;
+    for (let i = 0; i < uniqueExpiries.length; i++) {
+      const d = uniqueExpiries[i].date;
+      if (d.getUTCDay() === 5) {
+        const nextWeek = new Date(d.getTime() + 7 * 24 * 60 * 60 * 1000);
+        if (nextWeek.getUTCMonth() !== d.getUTCMonth()) {
+          monthly = uniqueExpiries[i];
+          break;
+        }
+      }
+    }
+
+    const selected = [
+      { exp: daily, label: 'Daily' },
+      { exp: weekly, label: 'Weekly' },
+      { exp: monthly, label: 'Monthly' }
+    ].filter(s => s.exp);
+
+    const levels = [];
+
+    const calculateMaxPain = (callsAndPuts) => {
+      const strikes = Array.from(new Set(callsAndPuts.map(o => o.strike))).sort((a,b) => a - b);
+      let minPain = Infinity;
+      let maxPainStrike = null;
+      for (const s of strikes) {
+        let pain = 0;
+        for (const opt of callsAndPuts) {
+          if (opt.type === 'C' && s > opt.strike) pain += (s - opt.strike) * opt.oi;
+          else if (opt.type === 'P' && s < opt.strike) pain += (opt.strike - s) * opt.oi;
+        }
+        if (pain < minPain) {
+          minPain = pain;
+          maxPainStrike = s;
+        }
+      }
+      return maxPainStrike;
+    };
+
+    for (const sel of selected) {
+      const optsForExp = parsedOptions.filter(o => o.expStr === sel.exp.expStr);
+      const calls = optsForExp.filter(o => o.type === 'C');
+      const puts = optsForExp.filter(o => o.type === 'P');
+
+      if (calls.length > 0) {
+        const maxCall = calls.reduce((max, curr) => curr.oi > max.oi ? curr : max);
+        levels.push({
+          type: 'resistance',
+          strike: maxCall.strike,
+          oi: maxCall.oi,
+          expirationLabel: sel.label,
+          expStr: sel.exp.expStr,
+          source: 'Deribit'
+        });
+      }
+
+      if (puts.length > 0) {
+        const maxPut = puts.reduce((max, curr) => curr.oi > max.oi ? curr : max);
+        levels.push({
+          type: 'support',
+          strike: maxPut.strike,
+          oi: maxPut.oi,
+          expirationLabel: sel.label,
+          expStr: sel.exp.expStr,
+          source: 'Deribit'
+        });
+      }
+
+      if (optsForExp.length > 0 && sel.label === 'Daily') {
+        const painStrike = calculateMaxPain(optsForExp);
+        if (painStrike !== null) {
+          levels.push({
+            type: 'maxpain',
+            strike: painStrike,
+            oi: 0,
+            expirationLabel: sel.label,
+            expStr: sel.exp.expStr,
+            source: 'Deribit'
+          });
+        }
+      }
+    }
+
+    optionsCache.set(currency, { timestamp: Date.now(), data: levels });
+    res.json(levels);
+
+  } catch (err) {
+    console.error('Options Levels Error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
 app.get('/api/indices', async (req, res) => {
   try {
     const tickers = ['^GSPC', '^IXIC', '^DJI', '^FTSE', '^N225', '^NSEI', '000001.SS'];
@@ -636,6 +1149,12 @@ app.get('/api/macro/:countryCode', async (req, res) => {
 
 const server = app.listen(PORT, () => {
   console.log(`ARCA Terminal Proxy Server running on http://localhost:${PORT}`);
+  
+  // Auto-start persistent Binance streams for popular crypto tickers
+  // so footprint data accumulates from server boot, not from first client request
+  console.log('[FootprintStore] Auto-starting persistent crypto streams...');
+  footprintStore.ensureCryptoStream('BTC-USD');
+  footprintStore.ensureCryptoStream('ETH-USD');
 });
 
 const wss = new WebSocket.Server({ server });

@@ -47,6 +47,28 @@ const Magnifier = () => {
     return `OBJECT NODE: ${tag.toUpperCase()}${cls.toUpperCase()}`;
   };
 
+  const syncCanvasContents = (srcRoot, destRoot) => {
+    if (!srcRoot || !destRoot) return;
+    const srcCanvases = srcRoot.querySelectorAll('canvas');
+    const destCanvases = destRoot.querySelectorAll('canvas');
+    const len = Math.min(srcCanvases.length, destCanvases.length);
+
+    for (let i = 0; i < len; i += 1) {
+      const srcCanvas = srcCanvases[i];
+      const destCanvas = destCanvases[i];
+      const ctx = destCanvas.getContext('2d');
+      if (!ctx) continue;
+
+      destCanvas.width = srcCanvas.width;
+      destCanvas.height = srcCanvas.height;
+      try {
+        ctx.drawImage(srcCanvas, 0, 0);
+      } catch (err) {
+        // ignore draw errors for non-2d canvases
+      }
+    }
+  };
+
   // Deep clone with form inputs and scroll offsets copied recursively
   const clonePanelWithState = (original) => {
     const clone = original.cloneNode(true);
@@ -73,6 +95,7 @@ const Magnifier = () => {
     };
     
     copyScroll(original, clone);
+    syncCanvasContents(original, clone);
     return clone;
   };
 
@@ -162,6 +185,18 @@ const Magnifier = () => {
     return () => window.removeEventListener('mousemove', handleMouseMove);
   }, [active, isPinned, originalTarget]);
 
+  useEffect(() => {
+    if (!active || !originalTarget) return;
+    const refreshMs = isPinned ? 300 : 150;
+    const interval = setInterval(() => {
+      if (!originalTarget) return;
+      const clone = clonePanelWithState(originalTarget);
+      setTargetNode(clone);
+    }, refreshMs);
+
+    return () => clearInterval(interval);
+  }, [active, isPinned, originalTarget]);
+
   // Handle mousewheel zoom adjustments inside the lens
   useEffect(() => {
     const handleWheel = (e) => {
@@ -234,6 +269,7 @@ const Magnifier = () => {
     if (active && targetNode && mirrorRef.current && originalTarget) {
       mirrorRef.current.innerHTML = '';
       mirrorRef.current.appendChild(targetNode);
+      syncCanvasContents(originalTarget, mirrorRef.current);
 
       // Re-apply correct scrolled offsets to cloned container with structural mismatch safety
       const syncScrolls = (src, dest) => {

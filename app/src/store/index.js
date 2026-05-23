@@ -1,11 +1,23 @@
 import { create } from 'zustand';
 
 export const useStore = create((set) => ({
-  // Global Active Context
-  activeTicker: 'AAPL',
+  // Global Active Context — persist to localStorage so refresh remembers the ticker
+  activeTicker: (() => {
+    try {
+      return localStorage.getItem('arca_active_ticker') || 'AAPL';
+    } catch (e) {
+      return 'AAPL';
+    }
+  })(),
   activeQuery: 'markets',
   activeCountry: null,
-  activePanel: 'MAP', // 'MAP', 'COMPANY', 'MACRO'
+  activePanel: (() => {
+    try {
+      return localStorage.getItem('arca_active_panel') || 'MAP';
+    } catch (e) {
+      return 'MAP';
+    }
+  })(),
 
   // Watchlist State (persist to localStorage)
   watchlist: (() => {
@@ -21,10 +33,26 @@ export const useStore = create((set) => ({
   comparedTicker: null,
 
   // Actions
-  setContext: (ticker) => set({ activeTicker: ticker, activePanel: 'COMPANY' }),
+  setContext: (ticker) => {
+    try {
+      localStorage.setItem('arca_active_ticker', ticker);
+      localStorage.setItem('arca_active_panel', 'COMPANY');
+    } catch (e) {}
+    set({ activeTicker: ticker, activePanel: 'COMPANY' });
+  },
   setQuery: (query) => set({ activeQuery: query }),
-  setCountry: (countryCode) => set({ activeCountry: countryCode, activePanel: 'MACRO' }),
-  setPanel: (panelName) => set({ activePanel: panelName }),
+  setCountry: (countryCode) => {
+    try {
+      localStorage.setItem('arca_active_panel', 'MACRO');
+    } catch (e) {}
+    set({ activeCountry: countryCode, activePanel: 'MACRO' });
+  },
+  setPanel: (panelName) => {
+    try {
+      localStorage.setItem('arca_active_panel', panelName);
+    } catch (e) {}
+    set({ activePanel: panelName });
+  },
   
   // Watchlist Actions
   addToWatchlist: (ticker) => set((state) => {
@@ -68,4 +96,3 @@ export const useStore = create((set) => ({
     set({ selectedModel: model });
   },
 }));
-

@@ -191,6 +191,14 @@ const calculateStochastic = (data, kPeriod = 14, dPeriod = 3) => {
 };
 
 const TIMEFRAMES = ['1m', '5m', '15m', '1h', '1d', '1wk'];
+const DEFAULT_VISIBLE_BARS = {
+  '1m': 240,
+  '5m': 200,
+  '15m': 160,
+  '1h': 120,
+  '1d': 120,
+  '1wk': 120
+};
 
 const Chart = ({ ticker }) => {
   const chartContainerRef = useRef(null);
@@ -217,7 +225,8 @@ const Chart = ({ ticker }) => {
   const [activeOscillator, setActiveOscillator] = useState('none');
   const [activeTab, setActiveTab] = useState('station');
 
-  const microstructureData = useMicrostructureEngine(ticker, activeTab === 'stats');
+  const microstructureEnabled = activeTab !== 'station';
+  const microstructureData = useMicrostructureEngine(ticker, microstructureEnabled);
 
   const comparedTicker = useStore(state => state.comparedTicker);
   const setComparedTicker = useStore(state => state.setComparedTicker);
@@ -229,6 +238,40 @@ const Chart = ({ ticker }) => {
 
   const tradeAccumulatorRef = useRef({ price: null, vol: 0, time: null, high: null, low: null });
   const needsFitContentRef = useRef(false);
+
+  const resizeCharts = () => {
+    if (chartContainerRef.current && chartRef.current) {
+      const width = chartContainerRef.current.clientWidth;
+      const height = chartContainerRef.current.clientHeight;
+      if (width && height) {
+        chartRef.current.applyOptions({ width, height });
+      }
+    }
+    if (subChartContainerRef.current && subChartRef.current) {
+      const width = subChartContainerRef.current.clientWidth;
+      const height = subChartContainerRef.current.clientHeight;
+      if (width && height) {
+        subChartRef.current.applyOptions({ width, height });
+      }
+    }
+  };
+
+  const applyInitialRange = (series) => {
+    if (!series || series.length === 0 || !chartRef.current) return;
+    const count = series.length;
+    const rangeBars = Math.min(DEFAULT_VISIBLE_BARS[timeframe] || 120, count - 1);
+
+    if (rangeBars <= 0) {
+      chartRef.current.timeScale().fitContent();
+      subChartRef.current?.timeScale().fitContent();
+      return;
+    }
+
+    const from = series[count - 1 - rangeBars].time;
+    const to = series[count - 1].time;
+    chartRef.current.timeScale().setVisibleRange({ from, to });
+    subChartRef.current?.timeScale().setVisibleRange({ from, to });
+  };
 
   useEffect(() => {
     if (!chartContainerRef.current) return;
@@ -364,11 +407,7 @@ const Chart = ({ ticker }) => {
     });
 
     const handleResize = () => {
-      const width = chartContainerRef.current?.clientWidth;
-      if (width) {
-        chart.applyOptions({ width });
-        if (subChart) subChart.applyOptions({ width });
-      }
+      resizeCharts();
     };
 
     window.addEventListener('resize', handleResize);
@@ -383,7 +422,19 @@ const Chart = ({ ticker }) => {
   }, [activeOscillator]); // re-init chart when oscillator changes to handle subchart container existence
 
   useEffect(() => {
+    if (activeTab !== 'station') return;
+    const raf = requestAnimationFrame(() => {
+      resizeCharts();
+      applyInitialRange(rawHistory);
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [activeTab, activeOscillator]);
+
+  useEffect(() => {
     if (!ticker) return;
+    // Immediately clear old data so chart doesn't show stale candles from previous ticker
+    setRawHistory([]);
+    tradeAccumulatorRef.current = { price: null, vol: 0, time: null, high: null, low: null };
     const loadData = async () => {
       setLoading(true);
       try {
@@ -535,7 +586,29 @@ const Chart = ({ ticker }) => {
   }, [comparedTicker, timeframe]);
 
   useEffect(() => {
-    if (rawHistory.length === 0 || !mainSeriesRef.current) return;
+    if (!mainSeriesRef.current) return;
+
+    // When rawHistory is empty (e.g. ticker switch or fetch failure), clear all chart series
+    // to avoid showing stale data from the previous ticker
+    if (rawHistory.length === 0) {
+      mainSeriesRef.current.setData([]);
+      priceLineSeriesRef.current?.setData([]);
+      volumeSeriesRef.current?.setData([]);
+      Object.values(overlaySeriesRefs.current).forEach(series => {
+        try { series.setData([]); } catch (e) {}
+      });
+      if (subChartRef.current) {
+        Object.values(oscillatorSeriesRefs.current).forEach(series => {
+          try { series.setData([]); } catch (e) {}
+        });
+      }
+      if (compareSeriesRef.current && chartRef.current) {
+        try { chartRef.current.removeSeries(compareSeriesRef.current); } catch (e) {}
+        compareSeriesRef.current = null;
+      }
+      setHudData(null);
+      return;
+    }
 
     let filtered = rawHistory;
     
@@ -678,8 +751,7 @@ const Chart = ({ ticker }) => {
     }
 
     if (needsFitContentRef.current) {
-      chartRef.current?.timeScale().fitContent();
-      subChartRef.current?.timeScale().fitContent();
+      applyInitialRange(filtered);
       needsFitContentRef.current = false;
     }
   }, [rawHistory, timeframe, chartType, comparedData, activeOverlay, activeOscillator]);
@@ -797,8 +869,7 @@ const Chart = ({ ticker }) => {
           </button>
         </div>
 
-        {activeTab === 'station' && (
-          <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+        <div style={{ display: activeTab === 'station' ? 'flex' : 'none', flexDirection: 'column', flex: 1, minHeight: 0 }}>
             <div style={{
               background: 'var(--panel-header-bg)',
               borderBottom: '1px solid var(--panel-border)',
@@ -972,7 +1043,6 @@ const Chart = ({ ticker }) => {
               </div>
             )}
           </div>
-        )}
 
         {activeTab === 'stats' && (
           <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>

@@ -13,10 +13,113 @@ const RESILIENCY_WINDOW = 40;
 const SIZE_DIST_BINS = { retail: 0.1, mid: 1.0, whale: 10.0 };
 const RHYTHM_WINDOW = 100;
 const FRAGILITY_LEVELS = 5;
+const STORAGE_PREFIX = 'arca:microstructure';
+const STORAGE_SESSION_KEY = `${STORAGE_PREFIX}:session`;
+const STORAGE_DATA_PREFIX = `${STORAGE_PREFIX}:data:`;
+const STORAGE_VERSION = 1;
+const PERSIST_INTERVAL_MS = 2000;
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 const safeDiv = (a, b) => (b ? a / b : 0);
 const ema = (prev, value, alpha) => (prev == null ? value : prev + alpha * (value - prev));
+const getStorage = () => (typeof window !== 'undefined' ? window.sessionStorage : null);
+const buildStorageKey = (sessionId, symbol) => `${STORAGE_DATA_PREFIX}${sessionId}:${symbol}`;
+const clearStoredSession = (storage, sessionId) => {
+  if (!storage || !sessionId) return;
+  const prefix = `${STORAGE_DATA_PREFIX}${sessionId}:`;
+  for (let i = storage.length - 1; i >= 0; i -= 1) {
+    const key = storage.key(i);
+    if (key && key.startsWith(prefix)) {
+      storage.removeItem(key);
+    }
+  }
+};
+const restorePersistedFootprint = (engine, storage, sessionId, symbol) => {
+  if (!storage || !sessionId || !symbol) return false;
+  const raw = storage.getItem(buildStorageKey(sessionId, symbol));
+  if (!raw) return false;
+  try {
+    const payload = JSON.parse(raw);
+    if (!payload || payload.version !== STORAGE_VERSION) return false;
+
+    if (Array.isArray(payload.volumeMap)) {
+      engine.footprint.volumeMap = new Map(
+        payload.volumeMap.map(([price, val]) => [price, { buyVol: Number(val.buyVol) || 0, sellVol: Number(val.sellVol) || 0 }])
+      );
+      engine.footprint.lastDecay = Date.now();
+    }
+    if (Array.isArray(payload.midHistory)) {
+      engine.midHistory = payload.midHistory.slice(-120);
+    }
+    if (Array.isArray(payload.ofiSeries)) {
+      engine.ofiSeries = payload.ofiSeries.slice(-OFI_WINDOW);
+    }
+    if (payload.footprint && Array.isArray(payload.footprint.buckets)) {
+      engine.footprint.buckets = payload.footprint.buckets;
+      engine.snapshot.footprint = {
+        buckets: payload.footprint.buckets,
+        maxAbs: payload.footprint.maxAbs || 1,
+        maxVol: payload.footprint.maxVol || 1
+      };
+    }
+    return true;
+  } catch (err) {
+    return false;
+  }
+};
+const persistFootprint = (engine, storage, sessionId, symbol, now) => {
+  if (!storage || !sessionId || !symbol) return;
+  const buckets = engine.footprint.buckets || [];
+  const maxAbs = Math.max(1, ...buckets.map(b => Math.abs(b.delta || 0)));
+  const maxVol = Math.max(1, ...buckets.map(b => Math.max(b.buyVol || 0, b.sellVol || 0)));
+  const volumeMap = engine.footprint.volumeMap || new Map();
+
+  const payload = {
+    version: STORAGE_VERSION,
+    ts: now,
+    footprint: { buckets, maxAbs, maxVol },
+    volumeMap: Array.from(volumeMap.entries())
+      .filter(([, val]) => (val.buyVol || 0) + (val.sellVol || 0) > 0.001)
+      .slice(-400),
+    midHistory: engine.midHistory.slice(-120),
+    ofiSeries: engine.ofiSeries.slice(-OFI_WINDOW)
+  };
+
+  try {
+    storage.setItem(buildStorageKey(sessionId, symbol), JSON.stringify(payload));
+  } catch (err) {
+    // ignore storage failures
+  }
+};
+const directionFromValue = (value, threshold = 0.02) => (value > threshold ? 'UP' : value < -threshold ? 'DOWN' : 'NEUTRAL');
+const resolveMoveProb = (direction, upProb) => {
+  if (direction === 'UP') return upProb;
+  if (direction === 'DOWN') return 1 - upProb;
+  return 0.5;
+};
+const calcHorizonSec = (base, volScore) => {
+  const regimeScale = volScore > 0.7 ? 0.6 : volScore < 0.3 ? 1.4 : 1;
+  return clamp(Math.round(base * regimeScale), 3, 90);
+};
+const computeEntropy = values => {
+  const total = values.reduce((sum, v) => sum + v, 0);
+  if (!total || values.length < 2) return 1;
+  const entropy = -values.reduce((sum, v) => {
+    const p = v / total;
+    return p > 0 ? sum + p * Math.log(p) : sum;
+  }, 0);
+  return clamp(entropy / Math.log(values.length), 0, 1);
+};
+const computeDepthGradient = (bids, asks, mid, tickSize) => {
+  if (!Number.isFinite(mid) || !Number.isFinite(tickSize) || tickSize === 0) {
+    return { bidWeighted: 0, askWeighted: 0, imbalance: 0 };
+  }
+  const weight = level => 1 / (1 + Math.abs(level.price - mid) / tickSize);
+  const bidWeighted = bids.reduce((sum, level) => sum + level.size * weight(level), 0);
+  const askWeighted = asks.reduce((sum, level) => sum + level.size * weight(level), 0);
+  const imbalance = safeDiv(bidWeighted - askWeighted, bidWeighted + askWeighted);
+  return { bidWeighted, askWeighted, imbalance };
+};
 
 const normalizeTicker = ticker => (ticker || '').trim().toUpperCase();
 
@@ -139,7 +242,14 @@ const defaultSnapshot = {
   hiddenAlpha: { score: 0, signal: 'NONE' },
   mmDefense: { zones: [], strength: 0 },
   toxicLiquidity: { score: 0, levels: [] },
-  tacticalEntry: { timing: 0, score: 0, window: 'CLOSED' }
+  tacticalEntry: { timing: 0, score: 0, window: 'CLOSED' },
+  predictive: {
+    meta: { volRegime: 'MID', volScore: 0.5 },
+    kinematics: { signals: [] },
+    gradients: { signals: [] },
+    probability: { signals: [] },
+    regime: { signals: [] }
+  }
 };
 
 const initEngine = () => ({
@@ -184,6 +294,7 @@ const initEngine = () => ({
   },
   dirty: false,
   version: 0,
+  persistence: { sessionId: null, restored: false, lastSaved: 0 },
   // Queue Intelligence
   queue: {
     levelHistory: [],
@@ -360,7 +471,22 @@ const initEngine = () => ({
     timing: 0,
     score: 0,
     window: 'CLOSED'
-  }
+  },
+  predictive: {
+    meta: { volRegime: 'MID', volScore: 0.5 },
+    kinematics: { signals: [] },
+    gradients: { signals: [] },
+    probability: { signals: [] },
+    regime: { signals: [] }
+  },
+  pressure: { value: 0.5, velocity: 0, acceleration: 0 },
+  ofiKinematics: { velocity: 0, acceleration: 0 },
+  gradientState: { value: 0, velocity: 0, acceleration: 0 },
+  decayEdge: { bias: 0 },
+  bayes: { priorUp: 0.5, posteriorUp: 0.5 },
+  markov: { lastState: 'NEUTRAL', transitions: {} },
+  entropy: { score: 1, inefficiency: 0 },
+  micropriceModel: { value: 0, drift: 0, diffusion: 0, forecast: 0 }
 });
 
 const pushSeries = (series, value, maxLen) => {
@@ -397,14 +523,8 @@ const updateFootprintBuckets = (engine, mid, price, size, isBuy, now) => {
     engine.footprint.volumeMap = new Map();
   }
 
+  // Removed volume decay to allow endless accumulation until app close
   if (now - engine.footprint.lastDecay > 500) {
-    for (const [key, val] of engine.footprint.volumeMap.entries()) {
-      val.buyVol *= 0.95;
-      val.sellVol *= 0.95;
-      if (val.buyVol + val.sellVol < 0.01) {
-        engine.footprint.volumeMap.delete(key);
-      }
-    }
     engine.footprint.lastDecay = now;
   }
 
@@ -424,7 +544,7 @@ const updateFootprintBuckets = (engine, mid, price, size, isBuy, now) => {
   }
 };
 
-const rebuildFootprintBuckets = (engine, mid) => {
+const rebuildFootprintBuckets = (engine, mid, bids = [], asks = []) => {
   if (!Number.isFinite(mid)) return;
   const tickSize = pickTickSize(mid);
   engine.footprint.tickSize = tickSize;
@@ -433,21 +553,59 @@ const rebuildFootprintBuckets = (engine, mid) => {
     engine.footprint.volumeMap = new Map();
   }
 
-  const count = 18;
-  const centerIndex = Math.floor(count / 2);
+  const allPrices = new Set();
+  
+  // Collect all historical prices that have traded or had liquidity
+  if (engine.footprint.volumeMap) {
+    for (const key of engine.footprint.volumeMap.keys()) {
+      allPrices.add(parseFloat(key));
+    }
+  }
 
-  const buckets = Array.from({ length: count }, (_, i) => {
-    const offset = centerIndex - i;
-    const price = Math.round((mid + offset * tickSize) / tickSize) * tickSize;
+  // Collect current book prices
+  bids.forEach(b => allPrices.add(Math.round(b.price / tickSize) * tickSize));
+  asks.forEach(a => allPrices.add(Math.round(a.price / tickSize) * tickSize));
+
+  // Ensure a minimum visible window around the current mid price
+  const windowHalf = 20;
+  for (let i = -windowHalf; i <= windowHalf; i++) {
+    allPrices.add(Math.round((mid + i * tickSize) / tickSize) * tickSize);
+  }
+
+  // Sort prices descending (highest price at the top)
+  const sortedPrices = Array.from(allPrices).sort((a, b) => b - a);
+
+  const buckets = sortedPrices.map(price => {
     const key = price.toFixed(8);
-    const stored = engine.footprint.volumeMap.get(key) || { buyVol: 0, sellVol: 0 };
+    const stored = engine.footprint.volumeMap.get(key) || { buyVol: 0, sellVol: 0, prevBid: 0, prevAsk: 0 };
+
+    let currentBid = 0;
+    bids.forEach(b => {
+      if (Math.abs(Math.round(b.price / tickSize) * tickSize - price) < 1e-6) currentBid += b.size;
+    });
+
+    let currentAsk = 0;
+    asks.forEach(a => {
+      if (Math.abs(Math.round(a.price / tickSize) * tickSize - price) < 1e-6) currentAsk += a.size;
+    });
+
+    const liqChangeBid = currentBid - (stored.prevBid || 0);
+    const liqChangeAsk = currentAsk - (stored.prevAsk || 0);
+    const liqChange = (Math.abs(currentBid) > 0 ? liqChangeBid : 0) + (Math.abs(currentAsk) > 0 ? liqChangeAsk : 0);
+
+    stored.prevBid = currentBid;
+    stored.prevAsk = currentAsk;
+    engine.footprint.volumeMap.set(key, stored);
 
     return {
       price,
       buyVol: stored.buyVol,
       sellVol: stored.sellVol,
       delta: stored.buyVol - stored.sellVol,
-      volume: stored.buyVol + stored.sellVol
+      volume: stored.buyVol + stored.sellVol,
+      bidSize: currentBid,
+      askSize: currentAsk,
+      liqChange
     };
   });
 
@@ -925,6 +1083,304 @@ const updateTacticalEntry = (engine, sweepExhaustion, momentumDiv, executionConv
   t.window = t.score > 0.6 ? 'OPEN' : t.score > 0.3 ? 'PARTIAL' : 'CLOSED';
 };
 
+const buildPredictiveSignals = (engine, context) => {
+  const { bids, asks, mid, pressure, tickSize, now, compressionScore, shortVar, longVar, regime, aggressionIndex } = context;
+  const dtSec = engine.lastDepthTs ? Math.max(0.05, (now - engine.lastDepthTs) / 1000) : 0.1;
+  const volRatio = safeDiv(shortVar, longVar || shortVar || 1);
+  const volScore = clamp(volRatio, 0, 2) / 2;
+  const volRegime = volScore > 0.7 ? 'HIGH' : volScore < 0.3 ? 'LOW' : 'MID';
+  const adaptiveWeight = volRegime === 'HIGH' ? 0.85 : volRegime === 'LOW' ? 1.1 : 1;
+
+  const prevPressure = engine.pressure.value ?? pressure;
+  const prevPressureVelocity = engine.pressure.velocity || 0;
+  const pressureVelocity = (pressure - prevPressure) / dtSec;
+  const pressureAcceleration = (pressureVelocity - prevPressureVelocity) / dtSec;
+  engine.pressure = { value: pressure, velocity: pressureVelocity, acceleration: pressureAcceleration };
+
+  const ofiVelocity = engine.ofiTrend;
+  const prevOfiVelocity = engine.ofiKinematics.velocity || 0;
+  const ofiAcceleration = (ofiVelocity - prevOfiVelocity) / dtSec;
+  engine.ofiKinematics = { velocity: ofiVelocity, acceleration: ofiAcceleration };
+
+  const gradient = computeDepthGradient(bids, asks, mid, tickSize);
+  const prevGradient = Number.isFinite(engine.gradientState.value) ? engine.gradientState.value : gradient.imbalance;
+  const gradientVelocity = (gradient.imbalance - prevGradient) / dtSec;
+  const gradientAcceleration = (gradientVelocity - (engine.gradientState.velocity || 0)) / dtSec;
+  engine.gradientState = { value: gradient.imbalance, velocity: gradientVelocity, acceleration: gradientAcceleration };
+
+  const entropy = computeEntropy([...bids.slice(0, 5), ...asks.slice(0, 5)].map(level => level.size));
+  engine.entropy.score = entropy;
+  engine.entropy.inefficiency = 1 - entropy;
+
+  const decayAlpha = 0.12 + volScore * 0.35;
+  const decayInput = (engine.ofiValue + gradient.imbalance + (pressure - 0.5) * 2) / 3;
+  engine.decayEdge.bias = ema(engine.decayEdge.bias, decayInput, decayAlpha);
+
+  const midSeries = engine.midHistory;
+  const returnSeries = [];
+  for (let i = Math.max(1, midSeries.length - 26); i < midSeries.length; i++) {
+    const prev = midSeries[i - 1];
+    const curr = midSeries[i];
+    if (prev && curr) {
+      returnSeries.push((curr - prev) / prev);
+    }
+  }
+  const meanReturn = returnSeries.length ? returnSeries.reduce((a, b) => a + b, 0) / returnSeries.length : 0;
+  const stdReturn = returnSeries.length ? computeStdDev(returnSeries) : 0;
+  const meanZ = meanReturn / (stdReturn + 1e-6);
+  const pdfUpProb = clamp(0.5 + 0.45 * Math.tanh(meanZ * 1.4) + engine.ofiValue * 0.1, 0, 1);
+  const pdfConfidence = clamp(0.35 + Math.min(1, returnSeries.length / 20) * 0.3 + engine.entropy.inefficiency * 0.3, 0, 1);
+
+  const evidence = clamp(0.5 + 0.5 * (engine.ofiValue * 0.6 + gradient.imbalance * 0.3 + pressureVelocity * 0.1), 0, 1);
+  const likelihoodUp = clamp(evidence, 0.05, 0.95);
+  const priorUp = engine.bayes.priorUp ?? 0.5;
+  const posteriorUp = safeDiv(likelihoodUp * priorUp, likelihoodUp * priorUp + (1 - likelihoodUp) * (1 - priorUp));
+  engine.bayes.posteriorUp = posteriorUp;
+  engine.bayes.priorUp = ema(priorUp, posteriorUp, 0.3);
+
+  const currentState = regime && regime.length ? [...regime].sort((a, b) => b.value - a.value)[0].id : 'NEUTRAL';
+  if (!engine.markov.transitions[currentState]) engine.markov.transitions[currentState] = {};
+  if (engine.markov.lastState) {
+    if (!engine.markov.transitions[engine.markov.lastState]) engine.markov.transitions[engine.markov.lastState] = {};
+    engine.markov.transitions[engine.markov.lastState][currentState] = (engine.markov.transitions[engine.markov.lastState][currentState] || 0) + 1;
+  }
+  engine.markov.lastState = currentState;
+  const transitionRow = engine.markov.transitions[currentState] || {};
+  const transitionTotal = Object.values(transitionRow).reduce((a, b) => a + b, 0);
+  const markovProbs = transitionTotal
+    ? Object.entries(transitionRow).map(([state, count]) => ({ state, prob: count / transitionTotal }))
+    : (regime || []).map(r => ({ state: r.id, prob: r.value }));
+  const nextState = markovProbs.reduce((best, item) => (item.prob > best.prob ? item : best), { state: currentState, prob: 0 });
+
+  const topBid = bids[0];
+  const topAsk = asks[0];
+  const microprice = topBid && topAsk
+    ? (topAsk.price * topBid.size + topBid.price * topAsk.size) / (topBid.size + topAsk.size || 1)
+    : mid || 0;
+  const drift = (engine.ofiValue * 0.0008 + gradient.imbalance * 0.0006 + pressureVelocity * 0.0004) * (mid || microprice || 1);
+  const microHorizon = calcHorizonSec(10, volScore);
+  const diffusion = (stdReturn * (mid || microprice || 1)) * Math.sqrt(microHorizon || 1);
+  const forecast = microprice + drift * microHorizon;
+  engine.micropriceModel = { value: microprice, drift, diffusion, forecast };
+
+  const microUpProb = clamp(0.5 + 0.5 * Math.tanh((forecast - (mid || microprice || 0)) / (diffusion + 1e-6)), 0, 1);
+  const microConfidence = clamp(0.35 + Math.min(1, Math.abs(forecast - (mid || microprice || 0)) / (diffusion + 1e-6)) * 0.5 + engine.entropy.inefficiency * 0.2, 0, 1);
+
+  const recent = engine.midHistory.slice(-15);
+  let extremaDirection = 'NEUTRAL';
+  let extremaScore = 0;
+  if (recent.length >= 5) {
+    const max = Math.max(...recent);
+    const min = Math.min(...recent);
+    const range = max - min || 1;
+    const position = (mid - min) / range;
+    const slope = recent[recent.length - 1] - recent[recent.length - 2];
+    const prevSlope = recent[recent.length - 2] - recent[recent.length - 3];
+    const accel = slope - prevSlope;
+    const nearHigh = position > 0.85;
+    const nearLow = position < 0.15;
+    if (nearHigh) extremaDirection = 'DOWN';
+    if (nearLow) extremaDirection = 'UP';
+    if (nearHigh || nearLow) {
+      extremaScore = clamp(Math.abs(accel) * 150 + (1 - compressionScore) * 0.2, 0, 1);
+    }
+  }
+
+  const edgeInefficiency = engine.entropy.inefficiency;
+  const makeSignal = signal => ({
+    ...signal,
+    score: clamp(signal.score, 0, 1),
+    moveProb: clamp(signal.moveProb, 0, 1),
+    confidence: clamp(signal.confidence * adaptiveWeight, 0, 1),
+    horizonSec: calcHorizonSec(signal.horizonSec, volScore)
+  });
+
+  const kinematicsSignals = [
+    (() => {
+      const direction = directionFromValue(pressureVelocity, 0.015);
+      const upProb = clamp(0.5 + pressureVelocity * 1.8 + engine.ofiTrend * 0.15, 0, 1);
+      return makeSignal({
+        id: 'book-velocity',
+        label: 'ORDERBOOK VELOCITY',
+        direction,
+        score: Math.abs(pressureVelocity) * 2,
+        moveProb: resolveMoveProb(direction, upProb),
+        confidence: Math.abs(pressureVelocity) * 0.6 + Math.abs(pressureAcceleration) * 0.3 + edgeInefficiency * 0.2,
+        horizonSec: 8,
+        invalidation: 'Velocity flips or pressure returns to neutral (+/-2%).'
+      });
+    })(),
+    (() => {
+      const direction = directionFromValue(pressureAcceleration, 0.02);
+      const upProb = clamp(0.5 + pressureAcceleration * 0.8 + pressureVelocity * 0.2, 0, 1);
+      return makeSignal({
+        id: 'book-acceleration',
+        label: 'ORDERBOOK ACCELERATION',
+        direction,
+        score: Math.abs(pressureAcceleration) * 2,
+        moveProb: resolveMoveProb(direction, upProb),
+        confidence: Math.abs(pressureAcceleration) * 0.7 + edgeInefficiency * 0.15,
+        horizonSec: 6,
+        invalidation: 'Acceleration decays below 0.02 for 2 updates.'
+      });
+    })(),
+    (() => {
+      const direction = directionFromValue(ofiAcceleration, 0.02);
+      const upProb = clamp(0.5 + ofiAcceleration * 0.7 + engine.ofiTrend * 0.2, 0, 1);
+      return makeSignal({
+        id: 'ofi-acceleration',
+        label: 'OFI ACCELERATION',
+        direction,
+        score: Math.abs(ofiAcceleration) * 1.5,
+        moveProb: resolveMoveProb(direction, upProb),
+        confidence: Math.abs(ofiAcceleration) * 0.6 + Math.abs(engine.ofiTrend) * 0.3,
+        horizonSec: 7,
+        invalidation: 'OFI acceleration neutralizes or flips against trend.'
+      });
+    })()
+  ];
+
+  const gradientSignals = [
+    (() => {
+      const direction = directionFromValue(gradient.imbalance, 0.04);
+      const upProb = clamp(0.5 + gradient.imbalance * 0.6 + pressureVelocity * 0.1, 0, 1);
+      return makeSignal({
+        id: 'depth-gradient',
+        label: 'DEPTH GRADIENT SHIFT',
+        direction,
+        score: Math.abs(gradient.imbalance) * 1.2,
+        moveProb: resolveMoveProb(direction, upProb),
+        confidence: Math.abs(gradient.imbalance) * 0.7 + edgeInefficiency * 0.2,
+        horizonSec: 9,
+        invalidation: 'Gradient imbalance compresses below 0.05.'
+      });
+    })(),
+    (() => {
+      const direction = directionFromValue(gradientAcceleration, 0.03);
+      const upProb = clamp(0.5 + gradientAcceleration * 0.7, 0, 1);
+      return makeSignal({
+        id: 'gradient-accel',
+        label: 'GRADIENT ACCELERATION',
+        direction,
+        score: Math.abs(gradientAcceleration) * 1.5,
+        moveProb: resolveMoveProb(direction, upProb),
+        confidence: Math.abs(gradientAcceleration) * 0.6 + edgeInefficiency * 0.2,
+        horizonSec: 6,
+        invalidation: 'Gradient acceleration returns to flat or spread widens.'
+      });
+    })(),
+    (() => {
+      const direction = directionFromValue(forecast - (mid || microprice || 0), 0.0001);
+      return makeSignal({
+        id: 'stochastic-microprice',
+        label: 'STOCHASTIC MICROPRICE',
+        direction,
+        score: Math.abs(forecast - (mid || microprice || 0)) / ((mid || microprice || 1) * 0.002),
+        moveProb: resolveMoveProb(direction, microUpProb),
+        confidence: microConfidence,
+        horizonSec: 10,
+        invalidation: 'Forecast crosses mid against drift or spread expands 2x.'
+      });
+    })()
+  ];
+
+  const probabilitySignals = [
+    (() => {
+      const direction = directionFromValue(pdfUpProb - 0.5, 0.04);
+      return makeSignal({
+        id: 'pdf-move',
+        label: 'PDF MOVE DENSITY',
+        direction,
+        score: Math.abs(pdfUpProb - 0.5) * 2,
+        moveProb: resolveMoveProb(direction, pdfUpProb),
+        confidence: pdfConfidence,
+        horizonSec: 12,
+        invalidation: 'Mean return crosses 0 or volatility regime shifts.'
+      });
+    })(),
+    (() => {
+      const direction = directionFromValue(posteriorUp - 0.5, 0.03);
+      return makeSignal({
+        id: 'bayes-update',
+        label: 'BAYESIAN DIRECTION UPDATE',
+        direction,
+        score: Math.abs(posteriorUp - 0.5) * 2,
+        moveProb: resolveMoveProb(direction, posteriorUp),
+        confidence: clamp(Math.abs(posteriorUp - priorUp) * 2 + edgeInefficiency * 0.2, 0, 1),
+        horizonSec: 11,
+        invalidation: 'Posterior reverts inside 0.48 to 0.52 band.'
+      });
+    })(),
+    (() => {
+      const decayDirection = directionFromValue(engine.decayEdge.bias, 0.03);
+      const upProb = clamp(0.5 + engine.decayEdge.bias * 0.6 + aggressionIndex * 0.1, 0, 1);
+      return makeSignal({
+        id: 'time-decay',
+        label: 'TIME-DECAY EDGE',
+        direction: decayDirection,
+        score: Math.abs(engine.decayEdge.bias) * 1.4,
+        moveProb: resolveMoveProb(decayDirection, upProb),
+        confidence: Math.abs(engine.decayEdge.bias) * 0.7 + edgeInefficiency * 0.2,
+        horizonSec: 14,
+        invalidation: 'Decay bias crosses 0 or regime flips to HIGH vol.'
+      });
+    })()
+  ];
+
+  const regimeSignals = [
+    (() => {
+      const direction = directionFromValue(engine.ofiValue, 0.05);
+      return makeSignal({
+        id: 'markov-transition',
+        label: `MARKOV TRANSITION (${nextState.state})`,
+        direction,
+        score: nextState.prob,
+        moveProb: resolveMoveProb(direction, clamp(0.5 + nextState.prob * 0.3 + engine.ofiValue * 0.1, 0, 1)),
+        confidence: clamp(nextState.prob + edgeInefficiency * 0.2, 0, 1),
+        horizonSec: 18,
+        invalidation: 'Current regime reclassifies or transition prob drops.'
+      });
+    })(),
+    (() => {
+      const inefficiency = engine.entropy.inefficiency;
+      const direction = inefficiency > 0.3 ? directionFromValue(engine.ofiValue, 0.04) : 'NEUTRAL';
+      const upProb = clamp(0.5 + engine.ofiValue * 0.2 + inefficiency * 0.3, 0, 1);
+      return makeSignal({
+        id: 'entropy-efficiency',
+        label: 'ENTROPY EFFICIENCY',
+        direction,
+        score: inefficiency,
+        moveProb: resolveMoveProb(direction, upProb),
+        confidence: clamp(inefficiency * 0.8 + (1 - entropy) * 0.1, 0, 1),
+        horizonSec: 16,
+        invalidation: 'Entropy > 0.8 (high efficiency) or OFI neutralizes.'
+      });
+    })(),
+    (() => {
+      const direction = extremaDirection;
+      const upProb = clamp(0.5 + extremaScore * 0.4, 0, 1);
+      return makeSignal({
+        id: 'local-extrema',
+        label: 'LOCAL EXTREMA EXHAUSTION',
+        direction,
+        score: extremaScore,
+        moveProb: resolveMoveProb(direction, upProb),
+        confidence: clamp(extremaScore * 0.8 + edgeInefficiency * 0.2, 0, 1),
+        horizonSec: 10,
+        invalidation: 'Breaks recent extreme by more than 1 tick.'
+      });
+    })()
+  ];
+
+  return {
+    meta: { volRegime, volScore },
+    kinematics: { signals: kinematicsSignals },
+    gradients: { signals: gradientSignals },
+    probability: { signals: probabilitySignals },
+    regime: { signals: regimeSignals }
+  };
+};
+
 export const useMicrostructureEngine = (ticker, enabled = true) => {
   const [snapshot, setSnapshot] = useState(defaultSnapshot);
   const engineRef = useRef(initEngine());
@@ -973,6 +1429,7 @@ export const useMicrostructureEngine = (ticker, enabled = true) => {
     if (!enabled) return;
     const symbol = normalizeTicker(ticker);
     const engine = engineRef.current;
+    const storage = getStorage();
 
     if (!symbol) {
       engine.snapshot = { ...defaultSnapshot, status: { state: 'idle', message: 'SELECT A TICKER', source: '' } };
@@ -1019,6 +1476,53 @@ export const useMicrostructureEngine = (ticker, enabled = true) => {
     };
     engine.dirty = true;
     schedulePublish();
+
+    const initPersistence = async () => {
+      if (!storage || !symbol) return;
+
+      const storedSession = storage.getItem(STORAGE_SESSION_KEY);
+      if (storedSession && !engine.persistence.restored) {
+        engine.persistence.sessionId = storedSession;
+        const restored = restorePersistedFootprint(engine, storage, storedSession, symbol);
+        engine.persistence.restored = true;
+        if (restored) {
+          engine.dirty = true;
+          schedulePublish();
+        }
+      }
+
+      try {
+        const res = await fetch('http://localhost:3001/api/session');
+        if (!res.ok) return;
+        const data = await res.json();
+        const sessionId = data?.id;
+        if (!sessionId) return;
+
+        if (storedSession && storedSession !== sessionId) {
+          clearStoredSession(storage, storedSession);
+          engine.footprint.volumeMap = new Map();
+          engine.midHistory = [];
+          engine.ofiSeries = [];
+          engine.persistence.restored = false;
+        }
+
+        engine.persistence.sessionId = sessionId;
+        storage.setItem(STORAGE_SESSION_KEY, sessionId);
+
+        if (!engine.persistence.restored) {
+          const restored = restorePersistedFootprint(engine, storage, sessionId, symbol);
+          engine.persistence.restored = true;
+          if (restored) {
+            engine.dirty = true;
+            schedulePublish();
+          }
+        }
+      } catch (err) {
+        // ignore session init failures
+      }
+    };
+
+    initPersistence();
 
     let active = true;
     const ws = new WebSocket(streamUrl);
@@ -1250,7 +1754,21 @@ export const useMicrostructureEngine = (ticker, enabled = true) => {
       updateTacticalEntry(engine, engine.sweepExhaustion, engine.momentumDiv, engine.executionConviction, engine.vpin.score);
       updateSweepExhaustion(engine, sweepScore, aggressionIndex, liquidityTotal);
 
-      rebuildFootprintBuckets(engine, mid);
+      engine.predictive = buildPredictiveSignals(engine, {
+        bids,
+        asks: asksAsc,
+        mid,
+        pressure,
+        tickSize,
+        now,
+        compressionScore,
+        shortVar,
+        longVar,
+        regime,
+        aggressionIndex
+      });
+
+      rebuildFootprintBuckets(engine, mid, bidsWithIntensity, asksWithIntensity);
 
       engine.snapshot = {
         ...engine.snapshot,
@@ -1336,8 +1854,14 @@ export const useMicrostructureEngine = (ticker, enabled = true) => {
         hiddenAlpha: { score: engine.hiddenAlpha.score, signal: engine.hiddenAlpha.signal },
         mmDefense: { zones: engine.mmDefense.zones, strength: engine.mmDefense.strength },
         toxicLiquidity: { score: engine.toxicLiquidity.score, levels: engine.toxicLiquidity.levels },
-        tacticalEntry: { timing: engine.tacticalEntry.timing, score: engine.tacticalEntry.score, window: engine.tacticalEntry.window }
+        tacticalEntry: { timing: engine.tacticalEntry.timing, score: engine.tacticalEntry.score, window: engine.tacticalEntry.window },
+        predictive: engine.predictive
       };
+
+      if (engine.persistence.sessionId && storage && now - engine.persistence.lastSaved > PERSIST_INTERVAL_MS) {
+        persistFootprint(engine, storage, engine.persistence.sessionId, symbol, now);
+        engine.persistence.lastSaved = now;
+      }
 
       engine.lastDepthTs = Date.now();
       updateMetrics(eventTime, computeStart);
@@ -1372,7 +1896,7 @@ export const useMicrostructureEngine = (ticker, enabled = true) => {
 
       const mid = engine.snapshot.book.mid;
       updateFootprintBuckets(engine, mid, price, size, isBuy, now);
-      rebuildFootprintBuckets(engine, mid);
+      rebuildFootprintBuckets(engine, mid, engine.snapshot.book.bids, engine.snapshot.book.asks);
 
       // Elite trade-based indicators
       updateVPIN(engine, size, isBuy, now);

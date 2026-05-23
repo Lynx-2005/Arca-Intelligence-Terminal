@@ -8,6 +8,22 @@ const KEYS = {
   NEWS: import.meta.env.VITE_NEWS_API_KEY || ''
 };
 
+const isCryptoTicker = (ticker) => {
+  const symbol = (ticker || '').trim().toUpperCase();
+  if (!symbol) return false;
+  if (symbol.includes('-')) {
+    const parts = symbol.split('-');
+    if (parts.length !== 2) return false;
+    const quote = parts[1];
+    return ['USD', 'USDT', 'USDC', 'BUSD', 'EUR', 'BTC', 'ETH'].includes(quote);
+  }
+  if (symbol.endsWith('USDT') || symbol.endsWith('USDC')) return true;
+  if (symbol.endsWith('USD') && symbol.length > 3) return true;
+  return false;
+};
+
+const mapBinanceInterval = (interval) => (interval === '1wk' ? '1w' : interval);
+
 // Help map yahoo finance currency tickers to clean symbols
 const currencyMap = {
   'EURUSD=X': 'EUR/USD',
@@ -121,7 +137,10 @@ export const ApiService = {
     if (cached) return cached;
 
     try {
-       const res = await fetch(`http://localhost:3001/api/history/${ticker}?interval=${interval}`);
+       const targetInterval = mapBinanceInterval(interval);
+       const res = isCryptoTicker(ticker)
+         ? await fetch(`http://localhost:3001/api/crypto/history/${ticker}?interval=${encodeURIComponent(targetInterval)}`)
+         : await fetch(`http://localhost:3001/api/history/${ticker}?interval=${encodeURIComponent(interval)}`);
        if (!res.ok) throw new Error("Proxy error");
        const data = await res.json();
        
@@ -149,9 +168,14 @@ export const ApiService = {
          }))
          .filter(day => isFiniteNumber(day.time))
          .sort((a, b) => a.time - b.time); // ensure strictly ascending order
-       
-       apiCache.set(cacheKey, formatted, 5); // 5 min TTL
-       return formatted;
+
+       // Crypto history already arrives in normalized format.
+       const normalized = isCryptoTicker(ticker)
+         ? data
+         : formatted;
+
+       apiCache.set(cacheKey, normalized, 5); // 5 min TTL
+       return normalized;
     } catch (e) {
        console.warn(`History fetch failed for ${ticker} [${interval}]`, e);
        throw e;

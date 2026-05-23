@@ -104,11 +104,18 @@ const MapCanvas = ({ data, hoveredEvent, onHoverEvent, onClickEvent }) => {
     const ctx = bgCanvasRef.current.getContext('2d', { alpha: false });
     const { width, height } = dimensions;
     
+    const dpr = window.devicePixelRatio || 1;
+    bgCanvasRef.current.width = width * dpr;
+    bgCanvasRef.current.height = height * dpr;
+    bgCanvasRef.current.style.width = `${width}px`;
+    bgCanvasRef.current.style.height = `${height}px`;
+
     // Fill deep matte black background
     ctx.fillStyle = '#020202';
-    ctx.fillRect(0, 0, width, height);
+    ctx.fillRect(0, 0, width * dpr, height * dpr);
 
     ctx.save();
+    ctx.scale(dpr, dpr);
     ctx.translate(transform.x, transform.y);
     ctx.scale(transform.k, transform.k);
 
@@ -134,11 +141,11 @@ const MapCanvas = ({ data, hoveredEvent, onHoverEvent, onClickEvent }) => {
     ctx.restore();
 
     // Add subtle vignette/glow to the map edges
-    const gradient = ctx.createRadialGradient(width/2, height/2, height/4, width/2, height/2, width/2);
+    const gradient = ctx.createRadialGradient(width/2 * dpr, height/2 * dpr, height/4 * dpr, width/2 * dpr, height/2 * dpr, width/2 * dpr);
     gradient.addColorStop(0, 'rgba(0,0,0,0)');
     gradient.addColorStop(1, 'rgba(0,0,0,0.8)');
     ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, width, height);
+    ctx.fillRect(0, 0, width * dpr, height * dpr);
 
   }, [dimensions, worldData, projection, transform]);
 
@@ -154,12 +161,19 @@ const MapCanvas = ({ data, hoveredEvent, onHoverEvent, onClickEvent }) => {
     let startTime = performance.now();
 
     const render = (time) => {
-      ctx.clearRect(0, 0, width, height);
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = width * dpr;
+      canvas.height = height * dpr;
+      canvas.style.width = `${width}px`;
+      canvas.style.height = `${height}px`;
+
+      ctx.clearRect(0, 0, width * dpr, height * dpr);
       
       const currT = transformRef.current;
       ctx.save();
       
       try {
+        ctx.scale(dpr, dpr);
         ctx.translate(currT.x, currT.y);
         ctx.scale(currT.k, currT.k);
 
@@ -343,14 +357,10 @@ const MapCanvas = ({ data, hoveredEvent, onHoverEvent, onClickEvent }) => {
     <div ref={containerRef} style={{ width: '100%', height: '100%', position: 'absolute', top: 0, left: 0, overflow: 'hidden' }}>
       <canvas
         ref={bgCanvasRef}
-        width={dimensions.width}
-        height={dimensions.height}
         style={{ position: 'absolute', top: 0, left: 0, zIndex: 1 }}
       />
       <canvas
         ref={fgCanvasRef}
-        width={dimensions.width}
-        height={dimensions.height}
         style={{ position: 'absolute', top: 0, left: 0, zIndex: 2, cursor: isDragging.current ? 'grabbing' : (hoveredEvent ? 'pointer' : 'crosshair') }}
         onWheel={handleWheel}
         onPointerDown={handlePointerDown}

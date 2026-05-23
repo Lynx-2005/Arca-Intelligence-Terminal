@@ -11,11 +11,12 @@
  * - Delta histogram at bottom shows per-candle cumulative delta
  */
 export class OrderflowRenderer {
-  constructor(canvas, dataRef, domRef) {
+  constructor(canvas, dataRef, domRef, optionsLevels = []) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d', { alpha: false });
     this.dataRef = dataRef;
     this.domRef = domRef;
+    this.optionsLevels = optionsLevels;
 
     this.width = 0;
     this.height = 0;
@@ -272,6 +273,10 @@ export class OrderflowRenderer {
 
   // ═══════════════════ LIFECYCLE ═══════════════════
 
+  setOptionsLevels(levels) {
+    this.optionsLevels = levels || [];
+  }
+
   start() { this.isRunning = true; this._loop(); }
   stop() {
     this.isRunning = false;
@@ -306,17 +311,16 @@ export class OrderflowRenderer {
     const a = Math.abs(v);
     if (a >= 1e6) return (v / 1e6).toFixed(1) + 'M';
     if (a >= 1000) return (v / 1000).toFixed(1) + 'k';
-    if (a < 0.001) return v.toFixed(4);
-    if (a < 1) return v.toFixed(3);
-    if (a < 10) return v.toFixed(2);
-    return Math.round(v).toLocaleString();
+    // Preserve enough decimals so additions of tiny sizes are visible in cumulative totals
+    return Number(v.toFixed(4)).toString();
   }
 
   _fp(p) { // format price
-    if (p >= 10000) return p.toFixed(0);
-    if (p >= 100) return p.toFixed(1);
-    if (p >= 1) return p.toFixed(2);
-    return p.toFixed(4);
+    // Keep enough decimals so raw limit orders don't look repeated
+    if (p >= 10000) return Number(p.toFixed(2)).toString();
+    if (p >= 100) return Number(p.toFixed(3)).toString();
+    if (p >= 1) return Number(p.toFixed(4)).toString();
+    return Number(p.toFixed(6)).toString();
   }
 
   _niceStep(range, targetCount) {
@@ -558,6 +562,71 @@ export class OrderflowRenderer {
       }
     }
 
+    // ── DRAW OPTIONS LEVELS (Support / Resistance) ──
+    if (this.optionsLevels && this.optionsLevels.length > 0) {
+      this.optionsLevels.forEach(level => {
+        const y = this._priceToY(level.strike);
+        const isRes = level.type === 'resistance';
+        const isPain = level.type === 'maxpain';
+        const sourceStr = level.source || 'Deribit';
+        
+        let label = '';
+        if (isPain) {
+           label = `${level.expirationLabel} Max Pain (${sourceStr})`;
+        } else {
+           label = `${level.expirationLabel} ${isRes ? 'Res' : 'Supp'} (${sourceStr}) - ${level.oi.toLocaleString()} Sellers`;
+        }
+        
+        ctx.font = '10px sans-serif';
+        const textW = ctx.measureText(label).width;
+
+        let lineColor, textColor;
+        if (isPain) {
+           lineColor = 'rgba(255, 167, 38, 0.9)'; // Orange
+           textColor = '#ffb74d';
+        } else if (isRes) {
+           lineColor = 'rgba(239, 83, 80, 0.7)'; // Red
+           textColor = '#ef9a9a';
+        } else {
+           lineColor = 'rgba(0, 188, 212, 0.7)'; // Teal
+           textColor = '#4dd0e1';
+        }
+
+        // Draw if within vertical view
+        if (y > -20 && y < chartH + 20) {
+          ctx.strokeStyle = lineColor;
+          ctx.lineWidth = isPain ? 2.0 : 1.5;
+          if (!isPain) ctx.setLineDash([4, 4]); // Dashed for res/supp, solid for max pain
+          
+          ctx.beginPath();
+          ctx.moveTo(0, y);
+          ctx.lineTo(chartW, y);
+          ctx.stroke();
+          ctx.setLineDash([]); // Reset dash
+
+          // Background for text
+          ctx.fillStyle = 'rgba(10, 14, 20, 0.8)';
+          ctx.fillRect(10, y - 14, textW + 8, 14);
+          
+          ctx.fillStyle = textColor;
+          ctx.textAlign = 'left';
+          ctx.fillText(label, 14, y - 3);
+        } else {
+          // OFF-SCREEN INDICATOR
+          const isAbove = y <= -20;
+          const edgeY = isAbove ? 14 : chartH - 4;
+          const arrow = isAbove ? '↑' : '↓';
+          
+          ctx.fillStyle = 'rgba(10, 14, 20, 0.8)';
+          ctx.fillRect(10, edgeY - 10, textW + 20, 14);
+          
+          ctx.fillStyle = textColor;
+          ctx.textAlign = 'left';
+          ctx.fillText(`${arrow} ${label}`, 14, edgeY);
+        }
+      });
+    }
+
     ctx.restore(); // pop chart clip
 
     // ═══════════════════ DELTA HISTOGRAM ═══════════════════
@@ -662,10 +731,11 @@ export class OrderflowRenderer {
     // ═══════════════════ TIME AXIS ═══════════════════
 
     const timeY = chartH + this.DELTA_H;
+    const domX = this._domX();
     ctx.fillStyle = this.C.axisBg;
-    ctx.fillRect(0, timeY, W, this.TIME_AXIS_H);
+    ctx.fillRect(0, timeY, domX, this.TIME_AXIS_H);
     ctx.strokeStyle = this.C.axisBorder;
-    ctx.beginPath(); ctx.moveTo(0, timeY + 0.5); ctx.lineTo(W, timeY + 0.5); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, timeY + 0.5); ctx.lineTo(domX, timeY + 0.5); ctx.stroke();
 
     ctx.font = '8px monospace';
     ctx.fillStyle = this.C.gridText;
@@ -819,7 +889,7 @@ export class OrderflowRenderer {
   _drawDOM(ctx, dom, chartH) {
     const domX = this._domX();
     const domW = this.DOM_W;
-    const totalH = chartH + this.DELTA_H;
+    const totalH = this.height;
 
     // Background
     ctx.fillStyle = this.C.domBg;
@@ -846,7 +916,7 @@ export class OrderflowRenderer {
     );
 
     // Calculate row height
-    const totalLevels = bids.length + asks.length + 2; // +2 for spread row and header
+    const totalLevels = 10 + 10 + 2; // 10 bids, 10 asks, +2 for spread row and header
     const rowH = Math.min(18, Math.max(12, totalH / totalLevels));
 
     // Header
@@ -863,33 +933,38 @@ export class OrderflowRenderer {
 
     // Asks (reversed: highest at top)
     const asksReversed = [...asks].reverse();
-    for (let i = 0; i < asksReversed.length; i++) {
+    // Pad to exactly 10 rows (padding at top pushes real asks down closer to the spread)
+    while (asksReversed.length < 10) asksReversed.unshift(null);
+
+    for (let i = 0; i < 10; i++) {
       const a = asksReversed[i];
       const y = yOff + i * rowH;
       if (y > totalH) break;
 
-      // Volume bar
-      const barW = (a.size / maxSize) * (domW * 0.45);
-      ctx.fillStyle = this.C.domAskBar;
-      ctx.fillRect(domX + domW - barW - 2, y, barW, rowH - 1);
+      if (a) {
+        // Volume bar (anchored right)
+        const barW = (a.size / maxSize) * (domW * 0.45);
+        ctx.fillStyle = this.C.domAskBar;
+        ctx.fillRect(domX + domW - barW - 2, y, barW, rowH - 1);
 
-      // Price
-      ctx.fillStyle = this.C.domAskText;
-      ctx.font = '9px monospace';
-      ctx.textAlign = 'left';
-      ctx.fillText(this._fp(a.price), domX + 4, y + rowH / 2 + 3);
+        // Price
+        ctx.fillStyle = this.C.domAskText;
+        ctx.font = '9px monospace';
+        ctx.textAlign = 'left';
+        ctx.fillText(this._fp(a.price), domX + 4, y + rowH / 2 + 3);
 
-      // Size
-      ctx.fillStyle = this.C.domSizeText;
-      ctx.textAlign = 'center';
-      ctx.fillText(this._fv(a.size), domX + domW * 0.6, y + rowH / 2 + 3);
+        // Size
+        ctx.fillStyle = this.C.domSizeText;
+        ctx.textAlign = 'center';
+        ctx.fillText(this._fv(a.size), domX + domW * 0.6, y + rowH / 2 + 3);
 
-      // Cumulative
-      ctx.textAlign = 'right';
-      ctx.fillText(this._fv(a.cumulative), domX + domW - 4, y + rowH / 2 + 3);
+        // Cumulative
+        ctx.textAlign = 'right';
+        ctx.fillText(this._fv(a.cumulative), domX + domW - 4, y + rowH / 2 + 3);
+      }
     }
 
-    yOff += asksReversed.length * rowH;
+    yOff += 10 * rowH;
 
     // Spread row
     const spread = bestAsk - bestBid;
@@ -920,42 +995,49 @@ export class OrderflowRenderer {
     yOff += rowH + 6;
 
     // Bids
-    for (let i = 0; i < bids.length; i++) {
-      const b = bids[i];
+    const paddedBids = [...bids];
+    // Pad to exactly 10 rows (padding at bottom keeps real bids up near the spread)
+    while (paddedBids.length < 10) paddedBids.push(null);
+
+    for (let i = 0; i < 10; i++) {
+      const b = paddedBids[i];
       const y = yOff + i * rowH;
       if (y > totalH) break;
 
-      // Volume bar
-      const barW = (b.size / maxSize) * (domW * 0.45);
-      ctx.fillStyle = this.C.domBidBar;
-      ctx.fillRect(domX + 2, y, barW, rowH - 1);
+      if (b) {
+        // Volume bar (anchored right to match asks)
+        const barW = (b.size / maxSize) * (domW * 0.45);
+        ctx.fillStyle = this.C.domBidBar;
+        ctx.fillRect(domX + domW - barW - 2, y, barW, rowH - 1);
 
-      // Price
-      ctx.fillStyle = this.C.domBidText;
-      ctx.font = '9px monospace';
-      ctx.textAlign = 'left';
-      ctx.fillText(this._fp(b.price), domX + 4, y + rowH / 2 + 3);
+        // Price
+        ctx.fillStyle = this.C.domBidText;
+        ctx.font = '9px monospace';
+        ctx.textAlign = 'left';
+        ctx.fillText(this._fp(b.price), domX + 4, y + rowH / 2 + 3);
 
-      // Size
-      ctx.fillStyle = this.C.domSizeText;
-      ctx.textAlign = 'center';
-      ctx.fillText(this._fv(b.size), domX + domW * 0.6, y + rowH / 2 + 3);
+        // Size
+        ctx.fillStyle = this.C.domSizeText;
+        ctx.textAlign = 'center';
+        ctx.fillText(this._fv(b.size), domX + domW * 0.6, y + rowH / 2 + 3);
 
-      // Cumulative
-      ctx.textAlign = 'right';
-      ctx.fillText(this._fv(b.cumulative), domX + domW - 4, y + rowH / 2 + 3);
+        // Cumulative
+        ctx.textAlign = 'right';
+        ctx.fillText(this._fv(b.cumulative), domX + domW - 4, y + rowH / 2 + 3);
+      }
     }
   }
 
   _drawAxesEmpty(ctx, W, H, chartW, chartH) {
     const pax = this._priceAxisX();
+    const timeW = pax + this.PRICE_AXIS_W;
     ctx.fillStyle = this.C.axisBg;
     ctx.fillRect(pax, 0, this.PRICE_AXIS_W, H);
-    ctx.fillRect(0, chartH + this.DELTA_H, W, this.TIME_AXIS_H);
+    ctx.fillRect(0, chartH + this.DELTA_H, timeW, this.TIME_AXIS_H);
     ctx.strokeStyle = this.C.axisBorder;
     ctx.beginPath();
     ctx.moveTo(pax + 0.5, 0); ctx.lineTo(pax + 0.5, H);
-    ctx.moveTo(0, chartH + this.DELTA_H + 0.5); ctx.lineTo(W, chartH + this.DELTA_H + 0.5);
+    ctx.moveTo(0, chartH + this.DELTA_H + 0.5); ctx.lineTo(timeW, chartH + this.DELTA_H + 0.5);
     ctx.stroke();
   }
 }
