@@ -52,19 +52,46 @@ html, body, #root {
 
 /* Custom Bloomberg-style Scrollbar */
 ::-webkit-scrollbar {
-  width: 4px;
-  height: 4px;
+  width: 6px;
+  height: 6px;
 }
 ::-webkit-scrollbar-track {
   background: #050505;
 }
 ::-webkit-scrollbar-thumb {
   background: #222;
-  border-radius: 2px;
+  border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
   background: var(--accent-amber);
 }
+
+/* Premium Draggable Scrollbar for Advanced Panels */
+.premium-scrollbar {
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior-y: contain;
+  scroll-behavior: smooth;
+  pointer-events: auto;
+}
+.premium-scrollbar::-webkit-scrollbar {
+  width: 8px; /* Thicker for easier grabbing */
+}
+.premium-scrollbar::-webkit-scrollbar-track {
+  background: rgba(0,0,0,0.2);
+  border-left: 1px solid var(--panel-border);
+}
+.premium-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+}
+.premium-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 176, 0, 0.5); /* Glowing amber on hover */
+}
+.premium-scrollbar::-webkit-scrollbar-thumb:active {
+  background: rgba(255, 176, 0, 0.8);
+}
+
 
 /* Ticker Tape Animations */
 .ticker-wrap {

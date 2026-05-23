@@ -1,5 +1,4 @@
 import React, { useMemo, useState } from 'react';
-import { useMicrostructureEngine } from '../../hooks/useMicrostructureEngine';
 
 const formatMs = value => (Number.isFinite(value) ? `${value.toFixed(1)}ms` : '--');
 const formatHz = value => (Number.isFinite(value) ? `${value.toFixed(1)}Hz` : '--');
@@ -432,9 +431,9 @@ const TABS = [
   { id: 'execution', label: 'EXECUTION' }
 ];
 
-const MicrostructurePanel = ({ ticker, enabled }) => {
+const MicrostructurePanel = ({ data, ticker }) => {
   const [activeTab, setActiveTab] = useState('orderflow');
-  const data = useMicrostructureEngine(ticker, enabled);
+
   const {
     status, metrics, book, ofi, liquidity, aggression, absorption, spoofing, smartMoney, hiddenLiquidity,
     sweep, compression, footprint, regime, alpha, anomalies, execution, dealer,
@@ -470,18 +469,17 @@ const MicrostructurePanel = ({ ticker, enabled }) => {
   const footprintRows = useMemo(() => {
     const maxVol = footprint.maxVol || 1;
     return footprint.buckets.map(bucket => {
-      const bidIntensity = Math.min(1, (bucket.sellVol || 0) / maxVol);
-      const askIntensity = Math.min(1, (bucket.buyVol || 0) / maxVol);
       const buyVol = bucket.buyVol || 0;
       const sellVol = bucket.sellVol || 0;
-      const showSellImbalance = sellVol >= 3 * buyVol && sellVol > 0;
-      const showBuyImbalance = buyVol >= 3 * sellVol && buyVol > 0;
+      const totalVol = buyVol + sellVol;
+      const intensity = Math.min(1, totalVol / maxVol);
+      const isPOC = totalVol > 0 && totalVol >= maxVol * 0.95;
+      
       return {
         ...bucket,
-        bidIntensity,
-        askIntensity,
-        showSellImbalance,
-        showBuyImbalance
+        totalVol,
+        intensity,
+        isPOC
       };
     });
   }, [footprint.buckets, footprint.maxVol]);
@@ -589,68 +587,42 @@ const MicrostructurePanel = ({ ticker, enabled }) => {
         return (
           <div className="micro-tab-content">
             <div className="micro-panel micro-footprint">
-              <div className="micro-panel-title">FOOTPRINT INTELLIGENCE</div>
-              <div className="micro-footprint-header-row jigsaw-header">
-                <span className="jigsaw-col">BID VOL</span>
-                <span className="jigsaw-col">PRICE</span>
-                <span className="jigsaw-col">ASK VOL</span>
-                <span className="jigsaw-col">DELTA</span>
-              </div>
-              <div className="micro-footprint-grid jigsaw-grid">
+              <div className="micro-panel-title">VOLUME PROFILE DISTRIBUTION</div>
+              <div className="micro-footprint-grid volume-profile-grid" style={{ display: 'flex', flexDirection: 'column', gap: '2px', padding: '8px' }}>
                 {footprintRows.map((bucket, idx) => {
                   const isMidPrice = book.mid && Math.abs(bucket.price - book.mid) < 0.00001;
-                  // Jigsaw style: intensity maps directly to cell background opacity
-                  const bidBg = `rgba(255, 51, 51, ${Math.max(0.02, bucket.bidIntensity * 0.85)})`;
-                  const askBg = `rgba(0, 196, 255, ${Math.max(0.02, bucket.askIntensity * 0.85)})`;
-                  
                   return (
                     <div
-                      key={`fp-${idx}`}
-                      className={`micro-footprint-row jigsaw-row ${isMidPrice ? 'jigsaw-row-mid' : ''}`}
+                      key={`vp-${idx}`}
                       style={{ 
-                        display: 'grid', 
-                        gridTemplateColumns: '1fr 1fr 1fr 1fr', 
-                        gap: '2px', 
-                        marginBottom: '2px',
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        position: 'relative',
+                        height: '22px',
                         fontSize: '11px',
-                        fontFamily: 'monospace',
-                        textAlign: 'center',
-                        lineHeight: '20px'
+                        fontFamily: 'monospace'
                       }}
                     >
-                      {/* Bid Vol (Sell side) */}
-                      <div 
-                        className={`jigsaw-cell-bid ${bucket.showSellImbalance ? 'imbalance-sell' : ''}`}
-                        style={{ backgroundColor: bidBg, borderRight: bucket.showSellImbalance ? '2px solid #ff3333' : 'none' }}
-                      >
-                        <span style={{ fontWeight: bucket.bidIntensity > 0.5 ? 'bold' : 'normal', color: bucket.bidIntensity > 0.5 ? '#fff' : '#ccc' }}>
-                          {formatSize(bucket.sellVol)}
-                        </span>
-                      </div>
-
-                      {/* Price */}
-                      <div 
-                        className="jigsaw-cell-price"
-                        style={{ backgroundColor: isMidPrice ? 'rgba(255, 255, 255, 0.1)' : 'transparent', color: isMidPrice ? '#fff' : '#aaa', fontWeight: isMidPrice ? 'bold' : 'normal' }}
-                      >
+                      <div style={{ width: '80px', color: isMidPrice ? '#fff' : 'var(--text-secondary)', fontWeight: bucket.isPOC ? 'bold' : 'normal' }}>
                         {formatPrice(bucket.price)}
                       </div>
-
-                      {/* Ask Vol (Buy side) */}
-                      <div 
-                        className={`jigsaw-cell-ask ${bucket.showBuyImbalance ? 'imbalance-buy' : ''}`}
-                        style={{ backgroundColor: askBg, borderLeft: bucket.showBuyImbalance ? '2px solid #00c4ff' : 'none' }}
-                      >
-                        <span style={{ fontWeight: bucket.askIntensity > 0.5 ? 'bold' : 'normal', color: bucket.askIntensity > 0.5 ? '#fff' : '#ccc' }}>
-                          {formatSize(bucket.buyVol)}
-                        </span>
+                      
+                      <div style={{ flex: 1, position: 'relative', height: '100%', background: 'rgba(255,255,255,0.02)', borderLeft: '1px solid var(--panel-border)' }}>
+                        <div style={{ 
+                          position: 'absolute', 
+                          left: 0, 
+                          top: 0, 
+                          height: '100%', 
+                          width: `${bucket.intensity * 100}%`,
+                          background: bucket.isPOC ? 'var(--accent-amber)' : 'rgba(0, 196, 255, 0.3)',
+                          borderRight: bucket.isPOC ? '2px solid #fff' : 'none'
+                        }} />
+                        <div style={{ position: 'absolute', right: '6px', top: '2px', color: '#fff', fontSize: '10px' }}>
+                          {formatSize(bucket.totalVol)}
+                        </div>
                       </div>
-
-                      {/* Delta */}
-                      <div 
-                        className="jigsaw-cell-delta"
-                        style={{ color: bucket.delta > 0 ? '#00c4ff' : bucket.delta < 0 ? '#ff3333' : '#666' }}
-                      >
+                      
+                      <div style={{ width: '60px', textAlign: 'right', color: bucket.delta > 0 ? 'var(--status-up)' : bucket.delta < 0 ? 'var(--status-down)' : '#666' }}>
                         {bucket.delta >= 0 ? '+' : ''}{formatSize(bucket.delta)}
                       </div>
                     </div>

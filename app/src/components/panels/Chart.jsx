@@ -4,6 +4,9 @@ import Panel from '../Panel';
 import { ApiService } from '../../services/api';
 import { useStore } from '../../store';
 import MicrostructurePanel from './MicrostructurePanel';
+import AdvancedMicrostructurePanel from './AdvancedMicrostructurePanel';
+import OrderflowDepthPanel from './OrderflowDepthPanel';
+import { useMicrostructureEngine } from '../../hooks/useMicrostructureEngine';
 import { Activity, Layers, X } from 'lucide-react';
 
 const normalizeHistoryData = data => {
@@ -196,6 +199,7 @@ const Chart = ({ ticker }) => {
   const chartRef = useRef(null);
   const subChartRef = useRef(null);
 
+
   const mainSeriesRef = useRef(null);
   const priceLineSeriesRef = useRef(null);
   const compareSeriesRef = useRef(null);
@@ -212,6 +216,8 @@ const Chart = ({ ticker }) => {
   const [activeOverlay, setActiveOverlay] = useState('none');
   const [activeOscillator, setActiveOscillator] = useState('none');
   const [activeTab, setActiveTab] = useState('station');
+
+  const microstructureData = useMicrostructureEngine(ticker, activeTab === 'stats');
 
   const comparedTicker = useStore(state => state.comparedTicker);
   const setComparedTicker = useStore(state => state.setComparedTicker);
@@ -741,12 +747,53 @@ const Chart = ({ ticker }) => {
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
-              gap: '6px',
               marginTop: activeTab === 'stats' ? '-1px' : '0'
             }}
           >
             <Layers size={10} />
             MICROSTRUCTURE INTEL
+          </button>
+          <button
+            onClick={() => setActiveTab('advanced')}
+            style={{
+              background: activeTab === 'advanced' ? 'var(--panel-bg)' : 'transparent',
+              border: 'none',
+              borderRight: '1px solid var(--panel-border)',
+              borderTop: activeTab === 'advanced' ? '2px solid var(--accent-amber)' : '2px solid transparent',
+              color: activeTab === 'advanced' ? 'var(--accent-amber)' : 'var(--text-secondary)',
+              padding: '6px 16px',
+              fontWeight: 'bold',
+              fontSize: '9px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              marginTop: activeTab === 'advanced' ? '-1px' : '0'
+            }}
+          >
+            <Layers size={10} />
+            ADVANCED MICROSTRUCTURE
+          </button>
+          <button
+            onClick={() => setActiveTab('tape')}
+            style={{
+              background: activeTab === 'tape' ? 'var(--panel-bg)' : 'transparent',
+              border: 'none',
+              borderRight: '1px solid var(--panel-border)',
+              borderTop: activeTab === 'tape' ? '2px solid var(--accent-amber)' : '2px solid transparent',
+              color: activeTab === 'tape' ? 'var(--accent-amber)' : 'var(--text-secondary)',
+              padding: '6px 16px',
+              fontWeight: 'bold',
+              fontSize: '9px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              marginTop: activeTab === 'tape' ? '-1px' : '0'
+            }}
+          >
+            <Layers size={10} />
+            ORDERFLOW DEPTH TAPE
           </button>
         </div>
 
@@ -929,7 +976,19 @@ const Chart = ({ ticker }) => {
 
         {activeTab === 'stats' && (
           <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
-            <MicrostructurePanel ticker={ticker} enabled={activeTab === 'stats'} />
+            <MicrostructurePanel data={microstructureData} ticker={ticker} />
+          </div>
+        )}
+
+        {activeTab === 'advanced' && (
+          <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+            <AdvancedMicrostructurePanel data={microstructureData} ticker={ticker} currentPrice={microstructureData?.book?.mid || 0} />
+          </div>
+        )}
+
+        {activeTab === 'tape' && (
+          <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+            <OrderflowDepthPanel data={microstructureData} />
           </div>
         )}
       </div>

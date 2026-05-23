@@ -7,6 +7,8 @@ const Chat = () => {
   const selectedModel = useStore(state => state.selectedModel);
   const setSelectedModel = useStore(state => state.setSelectedModel);
   const activeTicker = useStore(state => state.activeTicker);
+  const activeCountry = useStore(state => state.activeCountry);
+  const watchlist = useStore(state => state.watchlist);
   
   const [messages, setMessages] = useState([
     { role: 'assistant', content: 'ARCA Intelligence Layer initialized. I have access to live market data, macro indicators, and news feeds. How can I assist with your analysis today?' }
@@ -79,14 +81,16 @@ const Chat = () => {
       const reply = await ApiService.postChatMessage(
         history,
         activeTicker,
-        selectedModel
+        selectedModel,
+        activeCountry,
+        watchlist
       );
       
       setMessages(prev => [...prev, reply]);
     } catch (err) {
       console.error('Chat completions request failed:', err);
-      let errMsg = 'Error connecting to intelligence layer. Please verify that the backend is running and that OPENROUTER_API_KEY is configured in your server/.env file.';
-      if (err.message && err.message.includes('API Key is missing')) {
+      let errMsg = err.message || 'Error connecting to intelligence layer. Please verify that the backend is running and that OPENROUTER_API_KEY is configured in your server/.env file.';
+      if (errMsg.includes('API Key is missing')) {
         errMsg = 'OpenRouter API Key is missing. Please add your key to server/.env and restart the server.';
       }
       setMessages(prev => [...prev, { role: 'assistant', content: errMsg, isError: true }]);

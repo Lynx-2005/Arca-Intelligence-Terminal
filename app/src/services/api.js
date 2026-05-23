@@ -958,12 +958,12 @@ export const ApiService = {
   /**
    * Send message history to the AI agent
    */
-  async postChatMessage(messages, activeTicker, model) {
+  async postChatMessage(messages, activeTicker, model, activeCountry, watchlist) {
     try {
       const res = await fetch('http://localhost:3001/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages, activeTicker, model })
+        body: JSON.stringify({ messages, activeTicker, model, activeCountry, watchlist })
       });
       if (!res.ok) {
         const errData = await res.json().catch(() => ({ error: 'Unknown server error' }));

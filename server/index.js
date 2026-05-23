@@ -297,33 +297,94 @@ app.post('/api/chat', async (req, res) => {
       });
     }
 
-    const { messages, activeTicker, model } = req.body;
+    const { messages, activeTicker, model, activeCountry, watchlist } = req.body;
     const selectedModel = model || 'google/gemini-2.5-flash';
 
     let systemContext = "You are ARCA AI, an advanced institutional trading assistant on the ARCA Terminal. You have access to real-time market data, macroeconomic indicators, and news feeds. Help the user analyze tickers, trends, and macroeconomic events. Be concise, direct, and professional (like a Bloomberg terminal assistant). If the user asks about a ticker, use the current active ticker context. Avoid pleasantries and conversational filler.";
 
+    if (watchlist && Array.isArray(watchlist) && watchlist.length > 0) {
+      systemContext += `\n\n[User Watchlist]\n${watchlist.join(', ')}`;
+    }
+
+    // Parallel fetch for activeTicker and activeCountry to save time
+    const promises = [];
+    let quoteData = null, newsSearch = null, profile = null;
+    let indexQuote = null, macroData = null;
+
     if (activeTicker) {
-      try {
-        const quote = await yahooFinance.quote(activeTicker).catch(() => null);
-        const newsSearch = await yahooFinance.search(activeTicker, { newsCount: 3, quotesCount: 0 }).catch(() => null);
+      promises.push(
+        yahooFinance.quoteSummary(activeTicker, { modules: ['price', 'summaryProfile', 'defaultKeyStatistics'] })
+          .then(data => profile = data)
+          .catch(() => null)
+      );
+      promises.push(
+        yahooFinance.search(activeTicker, { newsCount: 3, quotesCount: 0 })
+          .then(data => newsSearch = data)
+          .catch(() => null)
+      );
+    }
 
-        if (quote) {
-          const changePct = quote.regularMarketChangePercent?.toFixed(2) || '0.00';
-          const price = quote.regularMarketPrice?.toFixed(2) || 'N/A';
-          const companyName = quote.shortName || quote.longName || activeTicker;
+    if (activeCountry) {
+      const INDEX_MAPPINGS = {
+        'USA': '^GSPC', 'CHN': '000001.SS', 'DEU': '^GDAXI', 'FRA': '^FCHI',
+        'ITA': 'FTSEMIB.MI', 'ESP': '^IBEX', 'CAN': '^GSPTSE', 'BRA': '^BVSP',
+        'RUS': 'IMOEX.ME', 'AUS': '^AXJO', 'KOR': '^KS11', 'IND': '^NSEI',
+        'GBR': '^FTSE', 'JPN': '^N225', 'SAU': '^TASI.SR', 'SGP': '^STI',
+        'ZAF': '^J203.JO', 'PAK': '^KSE'
+      };
+      const cUpper = activeCountry.toUpperCase();
+      const indexTicker = INDEX_MAPPINGS[cUpper];
+      if (indexTicker) {
+        promises.push(
+          yahooFinance.quote(indexTicker).then(data => indexQuote = data).catch(() => null)
+        );
+      }
+      promises.push(
+        fetch(`https://api.worldbank.org/v2/country/${cUpper}/indicator/NY.GDP.MKTP.CD?date=2022:2026&format=json`)
+          .then(r => r.json())
+          .then(json => {
+            if (Array.isArray(json) && json[1]) {
+              const latest = json[1].find(item => item.value !== null);
+              if (latest) macroData = { ...macroData, gdp: `$${(latest.value / 1e12).toFixed(2)}T USD (${latest.date})` };
+            }
+          }).catch(() => null)
+      );
+    }
 
-          let newsStr = '';
-          if (newsSearch && Array.isArray(newsSearch.news)) {
-            newsStr = newsSearch.news.slice(0, 3).map(n => `* ${n.title} (${n.publisher || 'Finance Feed'})`).join('\n');
-          }
+    // Wait for all external context fetches
+    await Promise.all(promises);
 
-          systemContext += `\n\n[Active Ticker Context]\n- Symbol: ${activeTicker}\n- Company: ${companyName}\n- Price: $${price} (${changePct}% change)\n- Market Cap: $${(quote.marketCap / 1e9).toFixed(2)}B\n- 52W High/Low: $${quote.fiftyTwoWeekHigh?.toFixed(2)} / $${quote.fiftyTwoWeekLow?.toFixed(2)}`;
-          if (newsStr) {
-            systemContext += `\n- Recent News:\n${newsStr}`;
-          }
-        }
-      } catch (err) {
-        console.warn('Could not inject active ticker context into chat:', err.message);
+    if (profile && profile.price) {
+      const priceMod = profile.price;
+      const statMod = profile.defaultKeyStatistics || {};
+      const summaryMod = profile.summaryProfile || {};
+      
+      const changePct = (priceMod.regularMarketChangePercent * 100)?.toFixed(2) || '0.00';
+      const price = priceMod.regularMarketPrice?.toFixed(2) || 'N/A';
+      const companyName = priceMod.shortName || priceMod.longName || activeTicker;
+      
+      let newsStr = '';
+      if (newsSearch && Array.isArray(newsSearch.news)) {
+        newsStr = newsSearch.news.slice(0, 3).map(n => `* ${n.title} (${n.publisher || 'Finance Feed'})`).join('\n');
+      }
+
+      systemContext += `\n\n[Active Ticker Context: ${activeTicker}]\n- Company: ${companyName}\n- Price: $${price} (${changePct}% change)\n- Market Cap: $${(priceMod.marketCap / 1e9).toFixed(2)}B\n- Sector/Industry: ${summaryMod.sector || 'N/A'} / ${summaryMod.industry || 'N/A'}`;
+      if (statMod.forwardPE) systemContext += `\n- Forward P/E: ${statMod.forwardPE.toFixed(2)}`;
+      if (summaryMod.longBusinessSummary) systemContext += `\n- Business Summary: ${summaryMod.longBusinessSummary.substring(0, 400)}...`;
+      if (newsStr) {
+        systemContext += `\n- Recent News:\n${newsStr}`;
+      }
+    } else if (activeTicker) { // Fallback if quoteSummary fails
+        systemContext += `\n\n[Active Ticker Context]\n- Symbol: ${activeTicker} (Data temporarily unavailable)`;
+    }
+
+    if (activeCountry) {
+      systemContext += `\n\n[Active Macro Region: ${activeCountry.toUpperCase()}]`;
+      if (indexQuote) {
+        systemContext += `\n- Regional Index (${indexQuote.symbol}): ${indexQuote.regularMarketPrice} (${indexQuote.regularMarketChangePercent?.toFixed(2)}%)`;
+      }
+      if (macroData && macroData.gdp) {
+        systemContext += `\n- GDP: ${macroData.gdp}`;
       }
     }
 
@@ -352,12 +413,21 @@ app.post('/api/chat', async (req, res) => {
 
     if (!response.ok) {
       const errText = await response.text();
-      throw new Error(`OpenRouter API error: ${response.status} - ${errText}`);
+      let errMsg = `OpenRouter API error: ${response.status} - ${errText}`;
+      try {
+        const errJson = JSON.parse(errText);
+        if (errJson.error && errJson.error.message) {
+          errMsg = errJson.error.message;
+        }
+      } catch (e) {}
+      throw new Error(errMsg);
     }
 
     const data = await response.json();
     if (data && data.choices?.[0]?.message) {
       res.json({ message: data.choices[0].message });
+    } else if (data && data.error) {
+      throw new Error(data.error.message || 'OpenRouter returned an error payload');
     } else {
       throw new Error('Invalid response structure from OpenRouter');
     }
