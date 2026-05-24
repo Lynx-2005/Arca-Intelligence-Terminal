@@ -1,3 +1,0 @@
-import type { Validator } from "../index.js";
-export declare const number: Validator;
-//# sourceMappingURL=number.d.ts.map

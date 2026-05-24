@@ -289,54 +289,9 @@ const BottomDock = () => {
           )}
 
           {activeTab === 'calendar' && (
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th style={{ textAlign: 'left' }}>Time/Date</th>
-                  <th>Country</th>
-                  <th>Indicator / Corporate Event</th>
-                  <th>Consensus</th>
-                  <th>Prior</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td style={{ textAlign: 'left' }} className="text-muted">May 21 06:00</td>
-                  <td style={{ fontWeight: 'bold' }}>US</td>
-                  <td style={{ textAlign: 'left', color: 'var(--accent-amber)' }}>FOMC Meeting Minutes</td>
-                  <td>-</td>
-                  <td>-</td>
-                </tr>
-                <tr>
-                  <td style={{ textAlign: 'left' }} className="text-muted">May 21 18:00</td>
-                  <td style={{ fontWeight: 'bold' }}>US</td>
-                  <td style={{ textAlign: 'left', color: '#fff' }}>NVDA Q1 Earnings Report</td>
-                  <td>$5.59 EPS</td>
-                  <td>$4.93 EPS</td>
-                </tr>
-                <tr>
-                  <td style={{ textAlign: 'left' }} className="text-muted">May 22 10:15</td>
-                  <td style={{ fontWeight: 'bold' }}>EUR</td>
-                  <td style={{ textAlign: 'left', color: 'var(--text-primary)' }}>HCOB Eurozone Manufacturing PMI</td>
-                  <td>46.2</td>
-                  <td>45.7</td>
-                </tr>
-                <tr>
-                  <td style={{ textAlign: 'left' }} className="text-muted">May 22 14:30</td>
-                  <td style={{ fontWeight: 'bold' }}>US</td>
-                  <td style={{ textAlign: 'left', color: 'var(--text-primary)' }}>Initial Jobless Claims</td>
-                  <td>220K</td>
-                  <td>222K</td>
-                </tr>
-                <tr>
-                  <td style={{ textAlign: 'left' }} className="text-muted">May 23 15:00</td>
-                  <td style={{ fontWeight: 'bold' }}>US</td>
-                  <td style={{ textAlign: 'left', color: 'var(--text-primary)' }}>New Home Sales MoM</td>
-                  <td>1.5%</td>
-                  <td>-1.2%</td>
-                </tr>
-              </tbody>
-            </table>
+            <div className="flex-center text-muted" style={{ height: '100px' }}>
+              CALENDAR DATA COMING SOON
+            </div>
           )}
 
           {activeTab === 'alerts' && (

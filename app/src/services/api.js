@@ -1,13 +1,5 @@
 import { apiCache } from './cache';
 
-// Load API keys from environment variables
-const KEYS = {
-  FMP: import.meta.env.VITE_FMP_KEY || '',
-  ALPHA_VANTAGE: import.meta.env.VITE_ALPHA_VANTAGE_KEY || 'demo',
-  FRED: import.meta.env.VITE_FRED_KEY || '',
-  NEWS: import.meta.env.VITE_NEWS_API_KEY || ''
-};
-
 const isCryptoTicker = (ticker) => {
   const symbol = (ticker || '').trim().toUpperCase();
   if (!symbol) return false;
@@ -283,7 +275,7 @@ export const ApiService = {
           enterpriseValue: stats.enterpriseValue || 0,
         },
         competitors: competitors,
-        aiDossier: data.aiDossier || this.generateAIFallback(ticker, fin, profile),
+        aiDossier: data.aiDossier || {},
         supplyChainAI: data.supplyChainAI || null,
         threatsAI: data.threatsAI || null,
         ownership: {
@@ -322,19 +314,7 @@ export const ApiService = {
    */
   parseCompetitors(competitorQuotes, currentPrice) {
     if (!Array.isArray(competitorQuotes) || competitorQuotes.length === 0) {
-      return {
-        currentPrice: currentPrice,
-        peerSymbol: 'PEER',
-        peerPrice: currentPrice * 0.9,
-        peerPe: 20,
-        peerMargin: '15%',
-        peerGrowth: '8%',
-        peers: [],
-        moatScore: null,
-        moatScorecard: [],
-        marketShare: [],
-        threats: []
-      };
+      return null;
     }
 
     const peers = competitorQuotes.map(q => ({
@@ -353,11 +333,11 @@ export const ApiService = {
 
     return {
       currentPrice: currentPrice,
-      peerSymbol: primary.symbol || 'PEER',
-      peerPrice: primary.price || currentPrice * 0.9,
-      peerPe: primary.pe || 20,
-      peerMargin: primary.operatingMargin ? (primary.operatingMargin * 100).toFixed(1) + '%' : '15%',
-      peerGrowth: primary.revenueGrowth ? (primary.revenueGrowth * 100).toFixed(1) + '%' : '8%',
+      peerSymbol: primary.symbol || null,
+      peerPrice: primary.price || null,
+      peerPe: primary.pe || null,
+      peerMargin: primary.operatingMargin ? (primary.operatingMargin * 100).toFixed(1) + '%' : null,
+      peerGrowth: primary.revenueGrowth ? (primary.revenueGrowth * 100).toFixed(1) + '%' : null,
       peers: peers,
       moatScore: null,
       moatScorecard: [],
@@ -642,43 +622,6 @@ export const ApiService = {
   },
 
   /**
-   * Generate AI fallback from real financial data when OpenRouter key is missing
-   */
-  generateAIFallback(ticker, fin, profile) {
-    const revenueGrowth = fin.revenueGrowth || 0;
-    const operatingMargin = fin.operatingMargins || 0;
-    const profitMargin = fin.profitMargins || 0;
-    const debtEquity = fin.debtToEquity || 0;
-    const sector = profile.sector || 'Technology';
-    const industry = profile.industry || 'Software';
-    
-    const bullPoints = [];
-    const bearPoints = [];
-    
-    if (revenueGrowth > 0.15) bullPoints.push('Strong revenue growth trajectory');
-    else if (revenueGrowth > 0.05) bullPoints.push('Steady revenue expansion');
-    else bearPoints.push('Sluggish revenue growth');
-    
-    if (operatingMargin > 0.25) bullPoints.push('Industry-leading operating margins');
-    else if (operatingMargin > 0.15) bullPoints.push('Healthy profit margins');
-    else bearPoints.push('Margin compression concerns');
-    
-    if (debtEquity < 0.5) bullPoints.push('Conservative balance sheet with low leverage');
-    else if (debtEquity > 2) bearPoints.push('High debt burden relative to equity');
-    
-    if (profitMargin > 0.20) bullPoints.push('Superior profitability metrics');
-    else if (profitMargin < 0.05) bearPoints.push('Thin profit margins limit upside');
-    
-    return {
-      bullCase: bullPoints.length > 0 ? bullPoints.join('. ') + '.' : 'Market leadership in core segments with stable cash generation.',
-      bearCase: bearPoints.length > 0 ? bearPoints.join('. ') + '.' : 'Increasing competitive pressures and macroeconomic headwinds.',
-      moat: `Competitive positioning in ${sector} sector driven by ${industry.toLowerCase()} expertise and market presence.`,
-      supplyChainRisk: `Exposure to ${sector} supply chain dynamics and global logistics networks.`,
-      geographicExposure: 'Diversified revenue streams across domestic and international markets.'
-    };
-  },
-
-  /**
    * Helper to fetch global indices
    */
   async getGlobalIndices() {
@@ -830,9 +773,6 @@ export const ApiService = {
     }
   },
 
-  /**
-   * Helper mock generators and parsing logic
-   */
   parseInsiderTransactions(transactions) {
     if (!Array.isArray(transactions) || transactions.length === 0) {
       return [];
@@ -845,99 +785,6 @@ export const ApiService = {
       shares: t.shares || t.shares?.raw || 0,
       value: t.value || t.value?.raw || 0
     }));
-  },
-
-  generateMockCompanyIntel(ticker) {
-    const hash = ticker.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-    const basePrice = (hash % 400) + 70;
-    const marketCap = basePrice * 120000000;
-    
-    return {
-      symbol: ticker,
-      companyName: ticker + ' Corporation',
-      sector: hash % 2 === 0 ? 'Technology' : 'Financials',
-      industry: hash % 2 === 0 ? 'Consumer Electronics' : 'Asset Management',
-      description: `This is an institutional-grade financial overview of ${ticker}. The asset displays relative strengths in operations, with core growth driven by key sector tailwinds.`,
-      ceo: 'Alexander Vance',
-      country: 'US',
-      fullTimeEmployees: 12000 + (hash * 10),
-      hq: 'New York, NY, USA',
-      website: '',
-      companyOfficers: [],
-      financials: {
-        revenue: marketCap * 0.15,
-        netIncome: marketCap * 0.02,
-        operatingMargin: 0.18 + (hash % 10) / 100,
-        profitMargin: 0.10 + (hash % 8) / 100,
-        freeCashFlow: marketCap * 0.015,
-        eps: basePrice / 25,
-        debtEquity: 0.4 + (hash % 120) / 100,
-        revenueGrowth: 0.05 + (hash % 15) / 100,
-        peRatio: 18 + (hash % 20),
-        pegRatio: 1.2 + (hash % 10) / 10,
-        evEbitda: 12 + (hash % 10),
-        priceSales: 3.5 + (hash % 50) / 10,
-        returnOnEquity: 0.15 + (hash % 20) / 100,
-        returnOnAssets: 0.08 + (hash % 10) / 100,
-        grossMargin: 0.35 + (hash % 15) / 100,
-        ebitdaMargin: 0.22 + (hash % 10) / 100,
-        currentRatio: 1.2 + (hash % 10) / 10,
-        quickRatio: 0.8 + (hash % 10) / 10,
-      },
-      snapshot: {
-        marketCap: marketCap,
-        revenue: marketCap * 0.15,
-        netIncome: marketCap * 0.02,
-        cashReserves: marketCap * 0.05,
-        debt: marketCap * 0.03,
-        enterpriseValue: marketCap * 1.05,
-      },
-      competitors: {
-        currentPrice: basePrice,
-        peerSymbol: 'COMP',
-        peerPrice: basePrice * 0.9,
-        peerPe: 22,
-        peerMargin: '15%',
-        peerGrowth: '8%',
-        peers: [],
-        moatScore: null,
-        moatScorecard: [],
-        marketShare: [],
-        threats: []
-      },
-      aiDossier: this.generateAIFallback(ticker, {
-        revenueGrowth: 0.05 + (hash % 15) / 100,
-        operatingMargins: 0.18 + (hash % 10) / 100,
-        profitMargins: 0.10 + (hash % 8) / 100,
-        debtToEquity: 0.4 + (hash % 120) / 100
-      }, {
-        sector: hash % 2 === 0 ? 'Technology' : 'Financials',
-        industry: hash % 2 === 0 ? 'Consumer Electronics' : 'Asset Management'
-      }),
-      supplyChainAI: null,
-      threatsAI: [],
-      ownership: {
-        institutionalPct: '72.4%',
-        insiderPct: '1.8%',
-        retailPct: '25.8%',
-        insiderTransactions: [
-          { filerName: 'Vance Alexander', relation: 'CEO', transactionDate: '2026-05-12', transactionType: 'SELL', shares: 25000, value: basePrice * 25000 },
-          { filerName: 'Stone Beatrice', relation: 'CFO', transactionDate: '2026-05-08', transactionType: 'SELL', shares: 12000, value: basePrice * 12000 },
-          { filerName: 'Cross Richard', relation: 'Director', transactionDate: '2026-05-01', transactionType: 'BUY', shares: 5000, value: basePrice * 5000 }
-        ],
-        institutionalHolders: [],
-        insiderHolders: [],
-        fundHolders: [],
-        majorHolders: {},
-        netShareActivity: null
-      },
-      secFilings: [],
-      earnings: { history: [], trend: [] },
-      analyst: { recommendations: [], upgrades: [] },
-      financialStatements: { incomeStatements: [], balanceSheets: [], cashFlows: [] },
-      calendarEvents: null,
-      trends: { index: null, industry: null, sector: null }
-    };
   },
 
   /**
@@ -968,14 +815,8 @@ export const ApiService = {
       if (!res.ok) throw new Error("Proxy error");
       return await res.json();
     } catch (e) {
-      console.warn("Could not fetch models from proxy, using fallbacks:", e.message);
-      return [
-        { id: 'google/gemini-2.5-flash', name: 'Google: Gemini 2.5 Flash', contextLength: 1048576 },
-        { id: 'meta-llama/llama-3-8b-instruct:free', name: 'Meta: Llama 3 8B Instruct (Free)', contextLength: 8192 },
-        { id: 'mistralai/mistral-7b-instruct:free', name: 'Mistral: Mistral 7B Instruct (Free)', contextLength: 32768 },
-        { id: 'openai/gpt-4o-mini', name: 'OpenAI: GPT-4o Mini', contextLength: 128000 },
-        { id: 'anthropic/claude-3-haiku', name: 'Anthropic: Claude 3 Haiku', contextLength: 200000 }
-      ];
+      console.warn("Could not fetch models from proxy:", e.message);
+      return [];
     }
   },
 

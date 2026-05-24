@@ -5,22 +5,21 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "auth:fyers": "node scripts/auth.js fyers",
-    "auth:kite": "node scripts/auth.js kite",
-    "auth:angel": "node scripts/auth.js angel",
-    "auth:upstox": "node scripts/auth.js upstox",
-    "auth:dhan": "node scripts/auth.js dhan",
+    "requirements": "node ../requirements.js",
+    "setup": "node ../setup.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@clack/prompts": "^1.4.0",
     "axios": "^1.16.1",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "otplib": "^13.4.0",
+    "picocolors": "^1.1.1",
     "protobufjs": "^8.4.0",
     "ws": "^8.20.1",
     "yahoo-finance2": "^3.14.1"

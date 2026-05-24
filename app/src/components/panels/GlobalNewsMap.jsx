@@ -3,51 +3,239 @@ import * as d3Geo from 'd3-geo';
 import * as topojson from 'topojson-client';
 import { fetchGDELTGeoData } from '../../services/gdelt';
 import Panel from '../Panel';
-import { Activity, ShieldAlert, Zap, Target, Globe, AlertTriangle, TrendingUp, Radar } from 'lucide-react';
+import { ShieldAlert, Globe, AlertTriangle, TrendingUp, Radar } from 'lucide-react';
 
 const GEO_URL = "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json";
 
-// --- Enrichment Logic (Mock Intelligence Analysis) ---
-const ENRICH_DATA = (features) => {
+// --- Lightweight keyword-based event classifier ---
+const CLASSIFY_EVENT = (title, summary, description) => {
+  const text = `${title} ${summary} ${description}`.toLowerCase();
+
+  const severityScore = (kw, weight) => kw.some(w => text.includes(w)) ? weight : 0;
+
+  const breakingKws = ['explosion', 'explode', 'attack', 'attacked', 'war', 'military strike',
+    'crash', 'crashes', 'emergency', 'killed', 'kills', 'nuclear', 'disaster', 'severe',
+    'massive', 'catastrophe', 'catastrophic', 'assassination', 'assassinated', 'invasion',
+    'ballistic missile', 'air strike', 'airstrike', 'hostage', 'terrorist', 'terror attack',
+    'martial law', 'state of emergency', 'evacuate', 'evacuation', 'meltdown', 'bombing',
+    'bomb', 'shooting', 'massacre', 'genocide', 'tsunami', 'earthquake magnitude',
+    'volcanic eruption', 'plunge', 'plunges', 'tanks', 'artillery', 'chemical weapon'];
+
+  const highKws = ['crisis', 'collapse', 'collapsed', 'deadly', 'outbreak', 'sanction',
+    'sanctions', 'hurricane', 'earthquake', 'meltdown', 'default', 'bankruptcy',
+    'bankrupt', 'bank runs', 'bank run', 'contagion', 'hyperinflation',
+    'debt ceiling', 'government shutdown', 'riot', 'riots', 'protest', 'protests',
+    'uprising', 'coup', 'mutiny', 'resignation', 'impeachment', 'indictment',
+    'arrested', 'convicted', 'severe weather', 'wildfire', 'wildfires', 'flood',
+    'floods', 'pandemic', 'epidemic', 'lockdown', 'curfew', 'blackout',
+    'cyberattack', 'cyber attack', 'data breach', 'hacked', 'ransomware',
+    'recall', 'recalls', 'contaminated', 'poisoning', 'famine', 'drought',
+    'trade war', 'tariff', 'tariffs', 'retaliation', 'retaliatory',
+    'devaluation', 'devalue', 'capital controls', 'nationalization',
+    'expropriation', 'embargo', 'blockade'];
+
+  const mediumKws = ['regulation', 'regulatory', 'protest', 'protests', 'scandal',
+    'lawsuit', 'ban', 'shortage', 'cut', 'cuts', 'warning', 'warns',
+    'volatility', 'uncertainty', 'slowdown', 'slowdowns', 'recession',
+    'inflation', 'deflation', 'interest rate', 'rate hike', 'rate cut',
+    'layoffs', 'lay off', 'furlough', 'restructuring', 'divestiture',
+    'spinoff', 'spin-off', 'merger', 'acquisition', 'takeover',
+    'ipo', 'offering', 'buyback', 'buy back', 'dividend', 'stock split',
+    'investigation', 'investigated', 'probe', 'audit', 'whistleblower',
+    'settlement', 'fine', 'fined', 'penalty', 'sanctioned',
+    'downgrade', 'downgraded', 'upgrade', 'upgraded', 'outperform',
+    'underperform', 'beat', 'miss', 'guidance', 'forecast',
+    'drought', 'crop', 'harvest', 'supply chain', 'logistics',
+    'strike', 'strikes', 'union', 'labor', 'workers', 'wage',
+    'election', 'elected', 'vote', 'voting', 'ballot', 'campaign',
+    'policy', 'policies', 'fiscal', 'monetary', 'stimulus',
+    'infrastructure', 'spending', 'budget', 'deficit', 'surplus'];
+
+  const severityWeights = [
+    { kws: breakingKws, weight: 4 },
+    { kws: highKws, weight: 3 },
+    { kws: mediumKws, weight: 2 },
+  ];
+
+  const totalScore = severityWeights.reduce((sum, { kws, weight }) =>
+    sum + severityScore(kws, weight), 0);
+
+  const severity = totalScore >= 4 ? 'BREAKING' :
+    totalScore >= 2 ? 'HIGH' :
+    totalScore >= 1 ? 'MEDIUM' : 'LOW';
+
+  const riskScore = severity === 'BREAKING' ? 95 :
+    severity === 'HIGH' ? 70 :
+    severity === 'MEDIUM' ? 40 : 10;
+
+  // --- Sentiment ---
+  const bullishKws = ['surge', 'surges', 'surged', 'rally', 'rallies', 'rallied',
+    'growth', 'growing', 'expand', 'expanding', 'expansion', 'profit', 'profitable',
+    'profitability', 'record', 'record high', 'breakthrough', 'recovery', 'recovering',
+    'boom', 'booming', 'upgrade', 'upgraded', 'outperform', 'beat', 'beats',
+    'beat expectations', 'positive', 'optimistic', 'optimism', 'confidence',
+    'confident', 'innovation', 'innovative', 'patent', 'approval', 'approved',
+    'breakout', 'bullish', 'bull run', 'rebound', 'rebounding', 'strong demand',
+    'soaring', 'skyrocket', 'skyrocketing', 'jump', 'jumps', 'jumped',
+    'boost', 'boosted', 'gains', 'gaining', 'upside', 'opportunity', 'opportunities',
+    'partnership', 'collaboration', 'expansion', 'hiring', 'invest', 'investment'];
+
+  const bearishKws = ['loss', 'losses', 'lost', 'recession', 'recessionary',
+    'tariff', 'tariffs', 'decline', 'declining', 'declined', 'debt', 'default',
+    'defaults', 'bearish', 'bear market', 'slowdown', 'slowing', 'slowed',
+    'sell-off', 'selloff', 'sell off', 'crash', 'crashes', 'crashed',
+    'plunge', 'plunges', 'plunged', 'collapse', 'collapsed', 'bankruptcy',
+    'bankrupt', 'layoff', 'layoffs', 'firing', 'fired', 'downgrade',
+    'downgraded', 'underperform', 'miss', 'missed', 'misses', 'warning',
+    'warns', 'warned', 'risk', 'risks', 'risky', 'negative', 'pessimistic',
+    'pessimism', 'fear', 'fears', 'concern', 'concerns', 'concerning',
+    'uncertainty', 'volatile', 'volatility', 'trouble', 'troubled',
+    'struggle', 'struggling', 'weak', 'weakness', 'weakening', 'weakened',
+    'slump', 'slumping', 'slumped', 'dip', 'dips', 'dropped', 'drop',
+    'downward', 'downturn', 'cut', 'cuts', 'cutting', 'slash', 'slashed',
+    'emergency', 'bailout', 'bail out', 'rescue', 'contagion',
+    'panic', 'panicked', 'sell', 'selling', 'pressure', 'pressured'];
+
+  const bullishScore = severityScore(bullishKws, 1);
+  const bearishScore = severityScore(bearishKws, 1);
+
+  const sentiment = bullishScore > bearishScore ? 'BULLISH' :
+    bearishScore > bullishScore ? 'BEARISH' : 'NEUTRAL';
+
+  // --- Sectors ---
+  const techKws = ['tech', 'technology', 'software', 'hardware', 'ai', 'artificial intelligence',
+    'semiconductor', 'chip', 'chips', 'cloud', 'cyber', 'cybersecurity', 'data',
+    'computing', 'digital', 'internet', 'app', 'apps', 'mobile', 'saas',
+    'startup', 'start-ups', 'venture capital', 'silicon valley', 'big tech',
+    'meta', 'google', 'apple', 'microsoft', 'amazon', 'nvidia', 'openai',
+    'algorithm', 'machine learning', 'blockchain', 'crypto', 'bitcoin',
+    'quantum', 'robotics', 'automation', '5g', '6g', 'iot', 'ai chip'];
+
+  const energyKws = ['oil', 'crude', 'gas', 'natural gas', 'petroleum', 'energy',
+    'renewable', 'solar', 'wind', 'nuclear', 'coal', 'fossil fuel', 'fuel',
+    'gasoline', 'diesel', 'opec', 'refinery', 'pipeline', 'lng',
+    'electricity', 'power grid', 'battery', 'ev', 'electric vehicle',
+    'green energy', 'clean energy', 'carbon', 'emission', 'emissions',
+    'hydrocarbon', 'shale', 'drilling', 'exploration', 'offshore'];
+
+  const financeKws = ['bank', 'banking', 'financial', 'finance', 'fed', 'federal reserve',
+    'interest rate', 'rate hike', 'rate cut', 'inflation', 'cpi', 'bond', 'bonds',
+    'treasury', 'yield', 'yields', 'stock', 'stocks', 'equity', 'equities',
+    'market', 'markets', 'trading', 'exchange', 'nyse', 'nasdaq', 'dow',
+    's&p', 'sp500', 'russell', 'bull market', 'bear market', 'ipo',
+    'etf', 'mutual fund', 'hedge fund', 'investment', 'investor', 'investors',
+    'dividend', 'buyback', 'earnings', 'revenue', 'profit', 'profitability',
+    'margin', 'leverage', 'credit', 'debt', 'loan', 'mortgage', 'lending',
+    'derivative', 'option', 'future', 'forex', 'currency', 'dollar', 'euro',
+    'central bank', 'monetary', 'fiscal', 'stimulus', 'quantitative easing',
+    'tightening', 'regulation', 'deregulation', 'fintech', 'payments',
+    'blockchain', 'crypto', 'bitcoin', 'ethereum', 'defi', 'stablecoin'];
+
+  const healthcareKws = ['health', 'healthcare', 'medical', 'pharma', 'pharmaceutical',
+    'drug', 'drugs', 'vaccine', 'vaccination', 'covid', 'pandemic', 'epidemic',
+    'hospital', 'doctor', 'surgery', 'treatment', 'therapy', 'clinical trial',
+    'fda', 'approval', 'approved', 'biotech', 'biotechnology', 'genetic',
+    'gene', 'diagnostic', 'device', 'medicare', 'medicaid', 'insurance',
+    'health insurance', 'obamacare', 'patient', 'disease', 'cancer',
+    'alzheimer', 'diabetes', 'antibiotic', 'prescription', 'generic'];
+
+  const consumerKws = ['consumer', 'retail', 'retailer', 'store', 'stores', 'shop', 'shopping',
+    'e-commerce', 'ecommerce', 'amazon', 'walmart', 'target', 'costco',
+    'restaurant', 'fast food', 'food', 'beverage', 'drink', 'coffee',
+    'luxury', 'fashion', 'apparel', 'clothing', 'footwear', 'sportswear',
+    'nike', 'adidas', 'lvmh', 'hermes', 'gucci', 'brand', 'brands',
+    'advertising', 'marketing', 'social media', 'instagram', 'tiktok',
+    'streaming', 'netflix', 'disney', 'entertainment', 'gaming', 'video game',
+    'travel', 'tourism', 'hotel', 'airline', 'cruise', 'ride-sharing',
+    'uber', 'lyft', 'delivery', 'food delivery', 'subscription',
+    'd2c', 'direct-to-consumer', 'omnichannel', 'same-day delivery'];
+
+  const policyKws = ['government', 'policy', 'policies', 'regulation', 'regulatory',
+    'congress', 'parliament', 'senate', 'house', 'legislation', 'bill',
+    'law', 'legal', 'court', 'supreme court', 'ruling', 'verdict',
+    'election', 'vote', 'voting', 'ballot', 'campaign', 'candidate',
+    'president', 'prime minister', 'chancellor', 'cabinet', 'minister',
+    'tariff', 'tariffs', 'trade', 'trade war', 'sanction', 'sanctions',
+    'embargo', 'treaty', 'agreement', 'deal', 'negotiation', 'talks',
+    'summit', 'diplomatic', 'diplomacy', 'ambassador', 'embassy',
+    'defense', 'military', 'army', 'navy', 'air force', 'weapon',
+    'nato', 'united nations', 'eu', 'european union', 'imf', 'world bank',
+    'wto', 'subsidy', 'subsidies', 'tax', 'taxes', 'taxation', 'tariff',
+    'brexit', 'china', 'russia', 'ukraine', 'iran', 'north korea',
+    'israel', 'palestine', 'gaza', 'west bank', 'middle east', 'asia'];
+
+  const commoditiesKws = ['commodity', 'commodities', 'gold', 'silver', 'copper', 'aluminum',
+    'steel', 'iron', 'ore', 'lithium', 'rare earth', 'mineral', 'mining',
+    'agriculture', 'agricultural', 'wheat', 'corn', 'soybean', 'rice',
+    'sugar', 'coffee', 'cocoa', 'cotton', 'livestock', 'cattle', 'pork',
+    'palm oil', 'vegetable oil', 'fertilizer', 'chemical', 'chemicals',
+    'timber', 'lumber', 'pulp', 'paper', 'rubber', 'platinum', 'palladium',
+    'uranium', 'cobalt', 'nickel', 'zinc', 'lead', 'tin', 'manganese'];
+
+  const aeroKws = ['aerospace', 'aviation', 'airline', 'airlines', 'aircraft', 'airplane',
+    'plane', 'jet', 'boeing', 'airbus', 'lockheed', 'northrop', 'grumman',
+    'raytheon', 'defense', 'military', 'space', 'nasa', 'spacex',
+    'satellite', 'rocket', 'launch', 'spacecraft', 'drone', 'drones',
+    'unmanned', 'fighter jet', 'helicopter', 'missile', 'munitions'];
+
+  const allSectors = [
+    { name: 'TECHNOLOGY', kws: techKws },
+    { name: 'ENERGY', kws: energyKws },
+    { name: 'FINANCE', kws: financeKws },
+    { name: 'HEALTHCARE', kws: healthcareKws },
+    { name: 'CONSUMER', kws: consumerKws },
+    { name: 'POLICY', kws: policyKws },
+    { name: 'COMMODITIES', kws: commoditiesKws },
+    { name: 'AEROSPACE', kws: aeroKws },
+  ];
+
+  const matchedSectors = allSectors
+    .filter(s => s.kws.some(kw => text.includes(kw)))
+    .map(s => s.name);
+
+  const sectors = matchedSectors.length > 0 ? matchedSectors : ['EQUITIES'];
+
+  return { severity, sentiment, sectors, riskScore };
+};
+
+const formatTimestamp = (pubDate) => {
+  if (!pubDate) return '';
+  const d = new Date(pubDate);
+  if (isNaN(d.getTime())) return '';
+  const now = new Date();
+  const diff = (now - d) / 1000;
+  if (diff < 60) return 'just now';
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  if (diff < 172800) return 'yesterday';
+  return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+};
+
+// --- Format raw features for display with keyword-based classification ---
+const FORMAT_DATA = (features) => {
   return features.map((f, i) => {
-    const name = f.properties?.name?.toLowerCase() || '';
-    const isBreaking = name.includes('war') || name.includes('attack') || name.includes('strike') || name.includes('breaking');
-    const isHighImpact = name.includes('economy') || name.includes('sanction') || name.includes('military');
-    
-    let severity = 'LOW';
-    if (isBreaking) severity = 'BREAKING';
-    else if (isHighImpact) severity = 'HIGH';
-    else if (i % 5 === 0) severity = 'MEDIUM'; // Random distribution
-
-    let sentiment = 'NEUTRAL';
-    if (severity === 'BREAKING') sentiment = 'PANIC';
-    else if (severity === 'HIGH') sentiment = 'BEARISH';
-    else if (i % 3 === 0) sentiment = 'BULLISH';
-
-    const sectors = [];
-    if (name.includes('tech') || i % 7 === 0) sectors.push('SEMICONDUCTORS');
-    if (name.includes('oil') || i % 4 === 0) sectors.push('ENERGY');
-    if (name.includes('bank') || i % 6 === 0) sectors.push('FINANCIALS');
-    if (sectors.length === 0) sectors.push('EQUITIES');
-
-    // Strip HTML tags for clean summary
     const rawHtml = f.properties?.html || '';
     const cleanSummary = rawHtml.replace(/<[^>]*>?/gm, '');
+    const title = f.properties?.name || '';
+    const summary = cleanSummary || title;
+    const description = f.properties?.description || '';
+
+    const { severity, sentiment, sectors, riskScore } = CLASSIFY_EVENT(title, summary, description);
 
     return {
-      id: `evt-${f.geometry?.coordinates?.join('-') || i}-${name}`, // Stable ID
+      id: `evt-${f.geometry?.coordinates?.join('-') || i}`,
       original: f,
-      coords: f.geometry?.coordinates, // [lng, lat]
-      name: f.properties?.name || 'Unknown Event',
-      summary: cleanSummary || name,
-      description: f.properties?.description || '',
+      coords: f.geometry?.coordinates,
+      name: title || 'Unknown Event',
+      summary,
+      description,
       severity,
       sentiment,
       sectors,
-      riskScore: Math.floor(Math.random() * 40) + (severity === 'BREAKING' ? 60 : severity === 'HIGH' ? 40 : 10),
-      timestamp: new Date(Date.now() - Math.random() * 3600000).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'}),
-      source: ['Reuters', 'Bloomberg', 'Geopolitical Intel', 'OSINT'][Math.floor(Math.random() * 4)],
-      phase: Math.random() * Math.PI * 2, // For animation offset
+      riskScore,
+      timestamp: formatTimestamp(f.properties?.pubDate),
+      source: 'Google News',
+      phase: 0,
     };
   }).filter(f => f.coords && f.coords.length === 2);
 };
@@ -426,23 +614,7 @@ const TopHUD = ({ activeCount, breakingCount }) => (
 
 
 const RightHUD = ({ event, onClose }) => {
-  const [isScanning, setIsScanning] = useState(false);
-  const [scanResult, setScanResult] = useState(null);
-
-  useEffect(() => {
-    setIsScanning(false);
-    setScanResult(null);
-  }, [event]);
-
   if (!event) return null;
-
-  const handleScan = () => {
-    setIsScanning(true);
-    setTimeout(() => {
-      setIsScanning(false);
-      setScanResult("SCAN COMPLETE: NO COVERT ANOMALIES DETECTED. SIGNAL CONFIRMED.");
-    }, 1500);
-  };
 
   return (
     <div className="intel-hud-right active">
@@ -494,15 +666,7 @@ const RightHUD = ({ event, onClose }) => {
           </div>
         </div>
 
-        {scanResult ? (
-          <div style={{ marginTop: 'auto', fontSize: '8px', color: 'var(--status-up)', border: '1px solid var(--status-up)', padding: '6px', backgroundColor: 'rgba(0, 255, 0, 0.05)', textAlign: 'center', letterSpacing: '0.5px' }}>
-            {scanResult}
-          </div>
-        ) : (
-          <button className="intel-action-btn" onClick={handleScan} disabled={isScanning} style={{ opacity: isScanning ? 0.7 : 1 }}>
-            <Zap size={10} /> {isScanning ? "SCANNING SECTORS..." : "INITIATE DEEP SCAN"}
-          </button>
-        )}
+
       </div>
     </div>
   );
@@ -522,7 +686,7 @@ const GlobalNewsMap = () => {
       const data = await fetchGDELTGeoData();
       if (data && data.features) {
         setRawNewsData(data.features);
-        setEnrichedData(ENRICH_DATA(data.features));
+        setEnrichedData(FORMAT_DATA(data.features));
       }
     };
     

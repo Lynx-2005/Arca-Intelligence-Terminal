@@ -95,15 +95,8 @@ const TickerBar = () => {
 
         setItems([...parsedIndices, ...sortedMovers, ...sortedVolume]);
       } catch (error) {
-        console.warn("TickerBar real-time load failed, falling back to static ticker config:", error);
-        const fallbackIndices = [
-          { type: 'index', ticker: 'S&P 500', price: 5200.50, changeRaw: 12.5, changePct: '+0.24%' },
-          { type: 'index', ticker: 'NASDAQ', price: 16400.20, changeRaw: -45.3, changePct: '-0.28%' },
-          { type: 'index', ticker: 'DXY', price: 104.20, changeRaw: 0.10, changePct: '+0.10%' },
-          { type: 'index', ticker: '10Y YIELD', price: 4.25, changeRaw: 0.05, changePct: '+1.19%' },
-          { type: 'index', ticker: 'GOLD', price: 2350.80, changeRaw: 15.2, changePct: '+0.65%' }
-        ];
-        setItems(fallbackIndices);
+        console.warn("TickerBar real-time load failed:", error);
+        setItems([]);
       }
     };
 

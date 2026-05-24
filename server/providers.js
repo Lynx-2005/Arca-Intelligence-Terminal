@@ -101,62 +101,218 @@ class BaseProvider {
       subs.forEach(s => s.onError({ state: 'error', message: `${this.name} ERROR: ${message}` }));
     }
   }
+
+  _scheduleReconnect(ticker, connectFn) {
+    if (!this._reconnectCount) this._reconnectCount = 0;
+    if (!this._maxReconnect) this._maxReconnect = 10;
+    if (this._reconnectCount >= this._maxReconnect) {
+      this.broadcastError(ticker, `${this.name} CONNECTION LOST — MAX RETRIES EXCEEDED`);
+      return;
+    }
+    this._reconnectCount++;
+    const delay = Math.min(30000, 1000 * Math.pow(2, this._reconnectCount - 1));
+    this.broadcastStatus(ticker, { state: 'connecting', message: `${this.name} RECONNECTING (${this._reconnectCount}/${this._maxReconnect})` });
+    setTimeout(connectFn, delay);
+  }
+
+  _cancelReconnect() {
+    this._reconnectCount = this._maxReconnect || 10;
+  }
+}
+
+// Shared token cache for NFO instruments (Kite format)
+// Lazy-loads from the configured broker's instruments list
+let _nfoTokenCache = null;
+async function getNfoToken(ticker) {
+  if (!_nfoTokenCache) {
+    _nfoTokenCache = {};
+    try {
+      // Try Kite instruments CSV first (most complete)
+      if (process.env.KITE_API_KEY && process.env.KITE_ACCESS_TOKEN) {
+        const axios = require('axios');
+        const res = await axios.get('https://api.kite.trade/instruments/NFO', {
+          headers: { 'Authorization': `token ${process.env.KITE_API_KEY}:${process.env.KITE_ACCESS_TOKEN}`, 'X-Kite-Version': '3' },
+          timeout: 10000,
+          responseType: 'text'
+        });
+        const lines = res.data.split('\n');
+        for (let i = 1; i < lines.length; i++) {
+          const cols = lines[i].split(',');
+          if (cols.length >= 3) {
+            const ts = cols[2].replace(/"/g, '').trim();
+            const tok = cols[0].replace(/"/g, '').trim();
+            _nfoTokenCache[ts] = tok;
+          }
+        }
+      } else {
+        // Fallback to Angel One scrip master
+        const axios = require('axios');
+        const res = await axios.get('https://margincalculator.angelbroking.com/OpenAPI_ScripMaster.json', { timeout: 10000 });
+        if (Array.isArray(res.data)) {
+          res.data.forEach(item => {
+            if (item.token && (item.symbol || item.tradingsymbol)) {
+              _nfoTokenCache[item.symbol || item.tradingsymbol] = item.token;
+            }
+          });
+        }
+      }
+    } catch (err) {
+      console.warn('[TokenCache] Failed to load NFO instruments:', err.message);
+    }
+  }
+  const u = ticker.toUpperCase().replace(/\.NS$|\.BO$/g, '');
+  return _nfoTokenCache[u] || _nfoTokenCache[ticker] || ticker;
+}
+
+// Normalize ticker for Upstox: RELIANCE.NS → NSE_EQ|RELIANCE
+function normalizeUpstoxTicker(ticker) {
+  const u = ticker.toUpperCase().replace(/\.NS$|\.BO$/g, '');
+  const UPSTOX_INDEX_MAP = {
+    '^NSEI': 'NSE_INDEX|Nifty 50',
+    'NIFTY': 'NSE_INDEX|Nifty 50',
+    'NIFTY50': 'NSE_INDEX|Nifty 50',
+    '^NSEBANK': 'NSE_INDEX|Nifty Bank',
+    'BANKNIFTY': 'NSE_INDEX|Nifty Bank',
+    '^BSESN': 'BSE_INDEX|SENSEX',
+    'SENSEX': 'BSE_INDEX|SENSEX',
+  };
+  return UPSTOX_INDEX_MAP[u] || `NSE_EQ|${u}`;
+}
+
+const FYERS_SYMBOL_MAP = {
+  '^NSEI': 'NSE:NIFTY50-INDEX',
+  'NIFTY': 'NSE:NIFTY50-INDEX',
+  'NIFTY50': 'NSE:NIFTY50-INDEX',
+  '^NSEBANK': 'NSE:NIFTYBANK-INDEX',
+  'BANKNIFTY': 'NSE:NIFTYBANK-INDEX',
+  '^BSESN': 'BSE:SENSEX-INDEX',
+  'SENSEX': 'BSE:SENSEX-INDEX',
+  'MIDCPNIFTY': 'NSE:MIDCPNIFTY-INDEX',
+  'FINNIFTY': 'NSE:FINNIFTY-INDEX',
+};
+
+function normalizeFyersTicker(u) {
+  const ticker = u.replace(/\.NS$|\.BO$/g, '');
+  if (FYERS_SYMBOL_MAP[ticker]) return FYERS_SYMBOL_MAP[ticker];
+  return `NSE:${ticker}-EQ`;
 }
 
 // =========================================================================
 // INDIAN BROKERS (L2 Depth)
 // =========================================================================
 
+// Normalize Indian ticker to broker-specific format
+// RELIANCE.NS → NSE:RELIANCE-EQ,  ^NSEI → NSE:NIFTY50-INDEX, etc.
+const BROKER_TICKER_MAP = {
+  '^NSEI': 'NSE:NIFTY50-INDEX',
+  'NIFTY': 'NSE:NIFTY50-INDEX',
+  'NIFTY50': 'NSE:NIFTY50-INDEX',
+  '^NSEBANK': 'NSE:NIFTYBANK-INDEX',
+  'BANKNIFTY': 'NSE:NIFTYBANK-INDEX',
+  '^BSESN': 'BSE:SENSEX-INDEX',
+  'SENSEX': 'BSE:SENSEX-INDEX',
+  'MIDCPNIFTY': 'NSE:MIDCPNIFTY-INDEX',
+  'FINNIFTY': 'NSE:FINNIFTY-INDEX',
+};
+
+function normalizeTicker(rawTicker) {
+  const u = rawTicker.toUpperCase().replace(/\.NS$|\.BO$/g, '');
+  if (BROKER_TICKER_MAP[u]) return BROKER_TICKER_MAP[u];
+  return `NSE:${u}-EQ`;
+}
+
 class FyersProvider extends BaseProvider {
   isConfigured() { return !!(process.env.FYERS_APP_ID && process.env.FYERS_ACCESS_TOKEN); }
   _doSubscribe(ticker) {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+    const fyersSym = normalizeFyersTicker(ticker);
+    const connect = () => {
+      if (this.ws) { try { this.ws.close(); } catch(e) {} this.ws = null; }
       this.ws = new WebSocket(`wss://api-t1.fyers.in/data/?access_token=${process.env.FYERS_APP_ID}:${process.env.FYERS_ACCESS_TOKEN}`);
       this.ws.on('open', () => {
+        this._reconnectCount = 0;
         this.broadcastStatus(ticker, { state: 'live', message: `${this.name} LIVE (${ticker})` });
-        this.ws.send(JSON.stringify({ T: "SUB_L2", symbols: [ticker] }));
+        this.ws.send(JSON.stringify({ T: "SUB_L2", symbols: [fyersSym] }));
       });
       this.ws.on('message', (data) => {
-        // Parse Fyers depth update format and broadcast
-        // Pseudo-implementation mapping
         try {
           const parsed = JSON.parse(data);
-          if (parsed.d && parsed.d[ticker]) {
-            const marketDepth = parsed.d[ticker]; // Expecting { bids: [...], asks: [...] }
-            this.broadcastDepth(ticker, marketDepth);
+          const tickData = parsed.d && (parsed.d[ticker] || parsed.d[fyersSym]);
+          if (tickData) {
+            if (tickData.bids || tickData.asks) this.broadcastDepth(ticker, tickData);
+            if (tickData.ltp > 0) {
+              const isBuyerMaker = this.inferAggressor(ticker, tickData.ltp);
+              this.broadcastTrade(ticker, { p: tickData.ltp, q: tickData.ltq || 0, T: tickData.ltt || Date.now(), m: isBuyerMaker });
+              this.getMarketState(ticker).lastPrice = tickData.ltp;
+            }
           }
         } catch (e) {}
       });
       this.ws.on('error', (err) => this.broadcastError(ticker, err.message));
-      this.ws.on('close', () => this.ws = null);
-    } else {
-      this.ws.send(JSON.stringify({ T: "SUB_L2", symbols: [ticker] }));
-      this.broadcastStatus(ticker, { state: 'live', message: `${this.name} LIVE (${ticker})` });
-    }
+      this.ws.on('close', () => { this.ws = null; this._scheduleReconnect(ticker, connect); });
+    };
+    connect();
   }
   _doUnsubscribe(ticker) {
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify({ T: "UNSUB_L2", symbols: [ticker] }));
-    }
+    const fyersSym = normalizeFyersTicker(ticker);
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify({ T: "UNSUB_L2", symbols: [fyersSym] }));
+    this._cancelReconnect();
   }
 }
 
 class KiteProvider extends BaseProvider {
   isConfigured() { return !!(process.env.KITE_API_KEY && process.env.KITE_ACCESS_TOKEN); }
   _doSubscribe(ticker) {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+    const connect = async () => {
+      if (this.ws) { try { this.ws.close(); } catch(e) {} this.ws = null; }
+      const token = await getNfoToken(ticker);
       this.ws = new WebSocket(`wss://ws.kite.trade?api_key=${process.env.KITE_API_KEY}&access_token=${process.env.KITE_ACCESS_TOKEN}`);
+      this.ws.binaryType = 'arraybuffer';
       this.ws.on('open', () => {
+        this._reconnectCount = 0;
         this.broadcastStatus(ticker, { state: 'live', message: `${this.name} LIVE (${ticker})` });
-        // Kite uses binary mode, sending a string payload for simplicity here
-        this.ws.send(JSON.stringify({ a: "subscribe", v: [ticker] }));
-        this.ws.send(JSON.stringify({ a: "mode", v: ["full", [ticker]] }));
+        this.ws.send(JSON.stringify({ a: "subscribe", v: [token] }));
+        this.ws.send(JSON.stringify({ a: "mode", v: ["full", [token]] }));
       });
       this.ws.on('message', (data) => {
-        // Parse kite binary format
+        try {
+          if (!(data instanceof ArrayBuffer || Buffer.isBuffer(data))) return;
+          const buf = Buffer.from(data);
+          let offset = 0;
+          while (offset + 4 < buf.length) {
+            const packetLen = buf.readUInt32BE(offset);
+            offset += 4;
+            if (offset + packetLen > buf.length) break;
+            if (packetLen >= 60) {
+              const lastPrice = buf.readInt32BE(offset + 8) / 100;
+              const bidPrice = buf.readInt32BE(offset + 40) / 100;
+              const bidQty = buf.readInt32BE(offset + 44);
+              const askPrice = buf.readInt32BE(offset + 48) / 100;
+              const askQty = buf.readInt32BE(offset + 52);
+              const lastQty = buf.readInt32BE(offset + 56);
+              if (bidPrice > 0 || askPrice > 0) {
+                this.updateQuote(ticker, bidPrice, askPrice);
+                this.broadcastDepth(ticker, { bids: [[bidPrice, bidQty]], asks: [[askPrice, askQty]] });
+              }
+              if (lastPrice > 0) {
+                const isBuyerMaker = this.inferAggressor(ticker, lastPrice);
+                this.broadcastTrade(ticker, { p: lastPrice, q: lastQty, T: Date.now(), m: isBuyerMaker });
+              }
+            }
+            offset += packetLen;
+          }
+        } catch (e) { console.error('Kite parse error:', e.message); }
       });
       this.ws.on('error', (err) => this.broadcastError(ticker, err.message));
-      this.ws.on('close', () => this.ws = null);
+      this.ws.on('close', () => { this.ws = null; this._scheduleReconnect(ticker, connect); });
+    };
+    connect();
+  }
+  _doUnsubscribe(ticker) {
+    this._cancelReconnect();
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      getNfoToken(ticker).then(token => {
+        this.ws.send(JSON.stringify({ a: "unsubscribe", v: [token] }));
+      });
     }
   }
 }
@@ -164,35 +320,138 @@ class KiteProvider extends BaseProvider {
 class AngelOneProvider extends BaseProvider {
   isConfigured() { return !!(process.env.ANGEL_CLIENT_CODE && process.env.ANGEL_FEED_TOKEN); }
   _doSubscribe(ticker) {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+    const connect = async () => {
+      if (this.ws) { try { this.ws.close(); } catch(e) {} this.ws = null; }
+      const token = await getNfoToken(ticker);
       this.ws = new WebSocket('wss://smartapisec.angelone.in/smart-stream');
       this.ws.on('open', () => {
+        this._reconnectCount = 0;
         this.broadcastStatus(ticker, { state: 'live', message: `${this.name} LIVE (${ticker})` });
+        this.ws.send(JSON.stringify({
+          action: 1,
+          params: { mode: 3, tokenList: [{ exchangeType: 2, tokens: [token] }] }
+        }));
+      });
+      this.ws.on('message', (data) => {
+        try {
+          const buf = Buffer.from(data);
+          if (buf.length < 4) return;
+          const ltp = Number(buf.readBigUInt64BE(32)) / 100;
+          const ltt = buf.readBigUInt64BE(58);
+          const ltq = buf.readBigUInt64BE(66);
+          const bid = Number(buf.readBigUInt64BE(82)) / 100;
+          const bidQty = Number(buf.readBigUInt64BE(90));
+          const ask = Number(buf.readBigUInt64BE(98)) / 100;
+          const askQty = Number(buf.readBigUInt64BE(106));
+          if (bid > 0 || ask > 0) {
+            this.updateQuote(ticker, bid, ask);
+            this.broadcastDepth(ticker, { bids: [[bid, bidQty]], asks: [[ask, askQty]] });
+          }
+          if (ltp > 0) {
+            const isBuyerMaker = this.inferAggressor(ticker, ltp);
+            this.broadcastTrade(ticker, { p: ltp, q: ltq, T: Number(ltt), m: isBuyerMaker });
+          }
+        } catch (e) {}
       });
       this.ws.on('error', (err) => this.broadcastError(ticker, err.message));
-    }
+      this.ws.on('close', () => { this.ws = null; this._scheduleReconnect(ticker, connect); });
+    };
+    connect();
+  }
+  _doUnsubscribe(ticker) {
+    this._cancelReconnect();
   }
 }
 
 class DhanProvider extends BaseProvider {
   isConfigured() { return !!(process.env.DHAN_CLIENT_ID && process.env.DHAN_ACCESS_TOKEN); }
   _doSubscribe(ticker) {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+    const connect = async () => {
+      if (this.ws) { try { this.ws.close(); } catch(e) {} this.ws = null; }
+      const token = await getNfoToken(ticker);
       this.ws = new WebSocket('wss://api-feed.dhan.co');
-      this.ws.on('open', () => this.broadcastStatus(ticker, { state: 'live', message: `${this.name} LIVE (${ticker})` }));
+      this.ws.on('open', () => {
+        this._reconnectCount = 0;
+        this.broadcastStatus(ticker, { state: 'live', message: `${this.name} LIVE (${ticker})` });
+        this.ws.send(JSON.stringify({
+          RequestCode: 1,
+          ClientId: process.env.DHAN_CLIENT_ID,
+          Token: process.env.DHAN_ACCESS_TOKEN,
+          MarketFeedData: [{ ExchangeSegment: 2, SecurityID: token }]
+        }));
+      });
+      this.ws.on('message', (data) => {
+        try {
+          const msg = JSON.parse(data.toString());
+          if (msg.Type === 'MarketFeed' && msg.Data) {
+            const d = msg.Data;
+            const lastPrice = d.LastTradedPrice || 0;
+            const bid = d.BestBidPrice || 0;
+            const ask = d.BestAskPrice || 0;
+            const lastQty = d.LastTradedQuantity || 0;
+            if (bid > 0 || ask > 0) {
+              this.updateQuote(ticker, bid, ask);
+              this.broadcastDepth(ticker, { bids: [[bid, d.BestBidQty || 0]], asks: [[ask, d.BestAskQty || 0]] });
+            }
+            if (lastPrice > 0) {
+              const isBuyerMaker = this.inferAggressor(ticker, lastPrice);
+              this.broadcastTrade(ticker, { p: lastPrice, q: lastQty, T: d.LastTradedTime || Date.now(), m: isBuyerMaker });
+            }
+          }
+        } catch (e) {}
+      });
       this.ws.on('error', (err) => this.broadcastError(ticker, err.message));
-    }
+      this.ws.on('close', () => { this.ws = null; this._scheduleReconnect(ticker, connect); });
+    };
+    connect();
+  }
+  _doUnsubscribe(ticker) {
+    this._cancelReconnect();
   }
 }
 
 class UpstoxProvider extends BaseProvider {
   isConfigured() { return !!process.env.UPSTOX_ACCESS_TOKEN; }
   _doSubscribe(ticker) {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+    const upstoxSym = normalizeUpstoxTicker(ticker);
+    const connect = () => {
+      if (this.ws) { try { this.ws.close(); } catch(e) {} this.ws = null; }
       this.ws = new WebSocket('wss://api.upstox.com/v2/feed/market-data-feed');
-      this.ws.on('open', () => this.broadcastStatus(ticker, { state: 'live', message: `${this.name} LIVE (${ticker})` }));
+      this.ws.on('open', () => {
+        this._reconnectCount = 0;
+        this.broadcastStatus(ticker, { state: 'live', message: `${this.name} LIVE (${ticker})` });
+        this.ws.send(JSON.stringify({ guid: '', method: 'sub', data: { mode: 'Full', instrumentKeys: [upstoxSym] } }));
+      });
+      this.ws.on('message', (data) => {
+        try {
+          const msg = JSON.parse(data.toString());
+          if (msg.type === 'initial_connection') {
+            this.ws.send(JSON.stringify({ guid: msg.guid, method: 'auth_request', data: { token: process.env.UPSTOX_ACCESS_TOKEN } }));
+          } else if (msg.type === 'auth_success') {
+            this.ws.send(JSON.stringify({ guid: msg.guid, method: 'sub', data: { mode: 'Full', instrumentKeys: [upstoxSym] } }));
+          } else if (msg.type === 'ltpc' || msg.type === 'full') {
+            const d = msg.data || msg;
+            const bid = d.bp || d.buy_price || 0;
+            const ask = d.sp || d.sell_price || 0;
+            const lastPrice = d.ltp || d.last_price || 0;
+            if (bid > 0 || ask > 0) {
+              this.updateQuote(ticker, bid, ask);
+              this.broadcastDepth(ticker, { bids: [[bid, d.bq || d.buy_qty || 0]], asks: [[ask, d.sq || d.sell_qty || 0]] });
+            }
+            if (lastPrice > 0) {
+              const isBuyerMaker = this.inferAggressor(ticker, lastPrice);
+              this.broadcastTrade(ticker, { p: lastPrice, q: d.v || d.volume || 0, T: Date.now(), m: isBuyerMaker });
+            }
+          }
+        } catch (e) {}
+      });
       this.ws.on('error', (err) => this.broadcastError(ticker, err.message));
-    }
+      this.ws.on('close', () => { this.ws = null; this._scheduleReconnect(ticker, connect); });
+    };
+    connect();
+  }
+  _doUnsubscribe(ticker) {
+    this._cancelReconnect();
   }
 }
 
@@ -336,7 +595,8 @@ class ProviderManager {
   }
 
   isIndianTicker(ticker) {
-    return ticker.endsWith('.NS') || ticker.endsWith('.BO');
+    const u = ticker.toUpperCase();
+    return ticker.endsWith('.NS') || ticker.endsWith('.BO') || !!BROKER_TICKER_MAP[u];
   }
 
   handleSubscribe(clientWs, ticker, onDepth, onTrade, onError, onStatus) {

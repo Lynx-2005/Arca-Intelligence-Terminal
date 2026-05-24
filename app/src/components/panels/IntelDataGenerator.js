@@ -16,8 +16,7 @@ const calculateAltmanZ = (financials, snapshot, balanceSheet) => {
   const { marketCap, debt, cashReserves } = snapshot;
   
   if (!balanceSheet || !revenue || !marketCap) {
-    const fallback = 2.5 + Math.random() * 5;
-    return parseFloat(fallback.toFixed(2));
+    return null;
   }
 
   const workingCapital = (balanceSheet.totalCurrentAssets || 0) - (balanceSheet.totalCurrentLiabilities || 0);
@@ -40,7 +39,7 @@ const calculateAltmanZ = (financials, snapshot, balanceSheet) => {
 // Calculate Beneish M-Score from real financial data
 const calculateBeneishM = (incomeStatements) => {
   if (!Array.isArray(incomeStatements) || incomeStatements.length < 2) {
-    return parseFloat((-2.5 + Math.random() * 1.5).toFixed(2));
+    return null;
   }
 
   const current = incomeStatements[0];
@@ -74,7 +73,7 @@ const calculateBeneishM = (incomeStatements) => {
 const calculatePiotroskiF = (financials, incomeStatements, balanceSheets, cashFlows) => {
   let score = 0;
 
-  if (!financials || !incomeStatements?.length) return Math.floor(4 + Math.random() * 4);
+  if (!financials || !incomeStatements?.length) return 0;
 
   const current = incomeStatements[0];
   const prior = incomeStatements[1];
@@ -444,7 +443,8 @@ const buildValuationSensitivity = (financials) => {
   };
 };
 
-export const generateIntelData = (ticker, rawIntel = {}) => {
+export const generateIntelData = (ticker, rawIntel) => {
+  if (!rawIntel) return null;
   const tickerUpper = ticker.toUpperCase();
   
   const financials = rawIntel.financials || {};
@@ -545,6 +545,7 @@ export const generateIntelData = (ticker, rawIntel = {}) => {
 
   return {
     ...rawIntel,
+    aiDossier,
     hq: rawIntel.hq || 'N/A',
     subsidiaries: rawIntel.sector ? `${rawIntel.sector} operations, subsidiaries, and affiliates` : 'N/A',
     globalPresence: rawIntel.country ? `Operations in ${rawIntel.country} and international markets` : 'N/A',

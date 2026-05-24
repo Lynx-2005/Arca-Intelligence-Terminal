@@ -627,14 +627,7 @@ app.get('/api/models', async (req, res) => {
     res.json([]);
   } catch (error) {
     console.error('Error fetching OpenRouter models:', error.message);
-    // Return standard popular models fallback list if request fails
-    res.json([
-      { id: 'google/gemini-2.5-flash', name: 'Google: Gemini 2.5 Flash', contextLength: 1048576 },
-      { id: 'meta-llama/llama-3-8b-instruct:free', name: 'Meta: Llama 3 8B Instruct (Free)', contextLength: 8192 },
-      { id: 'mistralai/mistral-7b-instruct:free', name: 'Mistral: Mistral 7B Instruct (Free)', contextLength: 32768 },
-      { id: 'openai/gpt-4o-mini', name: 'OpenAI: GPT-4o Mini', contextLength: 128000 },
-      { id: 'anthropic/claude-3-haiku', name: 'Anthropic: Claude 3 Haiku', contextLength: 200000 }
-    ]);
+    res.json([]);
   }
 });
 
@@ -1059,80 +1052,94 @@ app.get('/api/search', async (req, res) => {
 });
 
 // Fetch macro data dynamically from World Bank and Yahoo Finance index quotes
+async function fetchWorldBank(countryCode, indicator, formatFn) {
+  try {
+    const url = `https://api.worldbank.org/v2/country/${countryCode}/indicator/${indicator}?date=2022:2026&format=json`;
+    const res = await fetch(url);
+    const json = await res.json();
+    if (Array.isArray(json) && json[1]) {
+      const latest = json[1].find(item => item.value !== null);
+      if (latest && latest.value !== null) return formatFn(latest);
+    }
+  } catch (err) {
+    console.warn(`World Bank ${indicator} error for ${countryCode}:`, err.message);
+  }
+  return null;
+}
+
+const CURRENCY_MAPPINGS = {
+  'USA': { code: 'USD', pair: null },
+  'CHN': { code: 'CNY', pair: 'USDCNY=X' },
+  'DEU': { code: 'EUR', pair: 'EURUSD=X' },
+  'FRA': { code: 'EUR', pair: 'EURUSD=X' },
+  'ITA': { code: 'EUR', pair: 'EURUSD=X' },
+  'ESP': { code: 'EUR', pair: 'EURUSD=X' },
+  'CAN': { code: 'CAD', pair: 'USDCAD=X' },
+  'BRA': { code: 'BRL', pair: 'USDBRL=X' },
+  'RUS': { code: 'RUB', pair: 'USDRUB=X' },
+  'AUS': { code: 'AUD', pair: 'AUDUSD=X' },
+  'KOR': { code: 'KRW', pair: 'USDKRW=X' },
+  'IND': { code: 'INR', pair: 'USDINR=X' },
+  'GBR': { code: 'GBP', pair: 'GBPUSD=X' },
+  'JPN': { code: 'JPY', pair: 'USDJPY=X' },
+  'SAU': { code: 'SAR', pair: 'USDSAR=X' },
+  'SGP': { code: 'SGD', pair: 'USDSGD=X' },
+  'ZAF': { code: 'ZAR', pair: 'USDZAR=X' },
+  'PAK': { code: 'PKR', pair: 'USDPKR=X' }
+};
+
 app.get('/api/macro/:countryCode', async (req, res) => {
   try {
     const { countryCode } = req.params;
-    const countryCodeUpper = countryCode.toUpperCase();
+    const code = countryCode.toUpperCase();
 
-    // Mapping from country codes to their major index tickers
     const INDEX_MAPPINGS = {
-      'USA': '^GSPC',      // S&P 500
-      'CHN': '000001.SS',  // Shanghai Composite
-      'DEU': '^GDAXI',     // DAX
-      'FRA': '^FCHI',      // CAC 40
-      'ITA': 'FTSEMIB.MI', // FTSE MIB
-      'ESP': '^IBEX',      // IBEX 35
-      'CAN': '^GSPTSE',    // S&P/TSX
-      'BRA': '^BVSP',      // Bovespa
-      'RUS': 'IMOEX.ME',   // MOEX
-      'AUS': '^AXJO',      // ASX 200
-      'KOR': '^KS11',      // KOSPI
-      'IND': '^NSEI',      // Nifty 50
-      'GBR': '^FTSE',      // FTSE 100
-      'JPN': '^N225',      // Nikkei 225
-      'SAU': '^TASI.SR',   // TASI
-      'SGP': '^STI',       // Straits Times
-      'ZAF': '^J203.JO',   // JSE FTSE
-      'PAK': '^KSE'        // KSE-100
+      'USA': '^GSPC', 'CHN': '000001.SS', 'DEU': '^GDAXI', 'FRA': '^FCHI',
+      'ITA': 'FTSEMIB.MI', 'ESP': '^IBEX', 'CAN': '^GSPTSE', 'BRA': '^BVSP',
+      'RUS': 'IMOEX.ME', 'AUS': '^AXJO', 'KOR': '^KS11', 'IND': '^NSEI',
+      'GBR': '^FTSE', 'JPN': '^N225', 'SAU': '^TASI.SR', 'SGP': '^STI',
+      'ZAF': '^J203.JO', 'PAK': '^KSE'
     };
 
-    const indexTicker = INDEX_MAPPINGS[countryCodeUpper];
     let indexQuote = null;
-
+    const indexTicker = INDEX_MAPPINGS[code];
     if (indexTicker) {
-      try {
-        indexQuote = await yahooFinance.quote(indexTicker);
-      } catch (err) {
-        console.warn(`Could not fetch index quote for ${indexTicker}:`, err.message);
-      }
+      try { indexQuote = await yahooFinance.quote(indexTicker); }
+      catch (err) { console.warn(`Index quote error for ${indexTicker}:`, err.message); }
     }
 
-    // Dynamic fetch from World Bank API
-    let gdpValue = null;
-    let inflationValue = null;
+    const [gdpValue, inflationValue, interestRateValue, exportsValue, tradeValue] = await Promise.all([
+      fetchWorldBank(code, 'NY.GDP.MKTP.CD', d => `$${(d.value / 1e12).toFixed(2)}T USD (${d.date})`),
+      fetchWorldBank(code, 'FP.CPI.TOTL.ZG', d => `${d.value.toFixed(1)}% (${d.date})`),
+      fetchWorldBank(code, 'FR.INR.RINR', d => `${d.value.toFixed(2)}% (${d.date})`),
+      fetchWorldBank(code, 'TX.VAL.MRCH.CD.WT', d => `$${(d.value / 1e9).toFixed(2)}B (${d.date})`),
+      fetchWorldBank(code, 'NE.TRD.GNFS.ZS', d => `${d.value.toFixed(1)}% of GDP (${d.date})`)
+    ]);
 
-    try {
-      const gdpUrl = `https://api.worldbank.org/v2/country/${countryCodeUpper}/indicator/NY.GDP.MKTP.CD?date=2022:2026&format=json`;
-      const gdpRes = await fetch(gdpUrl);
-      const gdpJson = await gdpRes.json();
-      if (Array.isArray(gdpJson) && gdpJson[1]) {
-        const latestGdp = gdpJson[1].find(item => item.value !== null);
-        if (latestGdp) {
-          const valTrillion = (latestGdp.value / 1e12).toFixed(2);
-          gdpValue = `$${valTrillion}T USD (${latestGdp.date})`;
+    let currencyValue = null;
+    const currencyInfo = CURRENCY_MAPPINGS[code];
+    if (currencyInfo) {
+      if (currencyInfo.pair) {
+        try {
+          const forexQuote = await yahooFinance.quote(currencyInfo.pair);
+          if (forexQuote && forexQuote.regularMarketPrice) {
+            currencyValue = `${currencyInfo.code} (${forexQuote.regularMarketPrice.toFixed(4)})`;
+          }
+        } catch (err) {
+          currencyValue = currencyInfo.code;
         }
+      } else {
+        currencyValue = currencyInfo.code;
       }
-    } catch (err) {
-      console.warn(`Could not fetch GDP from World Bank for ${countryCodeUpper}:`, err.message);
-    }
-
-    try {
-      const infUrl = `https://api.worldbank.org/v2/country/${countryCodeUpper}/indicator/FP.CPI.TOTL.ZG?date=2022:2026&format=json`;
-      const infRes = await fetch(infUrl);
-      const infJson = await infRes.json();
-      if (Array.isArray(infJson) && infJson[1]) {
-        const latestInf = infJson[1].find(item => item.value !== null);
-        if (latestInf) {
-          inflationValue = `${latestInf.value.toFixed(1)}% (${latestInf.date})`;
-        }
-      }
-    } catch (err) {
-      console.warn(`Could not fetch inflation from World Bank for ${countryCodeUpper}:`, err.message);
     }
 
     res.json({
       gdp: gdpValue,
       inflation: inflationValue,
+      interestRate: interestRateValue,
+      currency: currencyValue,
+      exports: exportsValue,
+      tradeDependency: tradeValue,
       index: (indexQuote && indexQuote.regularMarketPrice) ? {
         symbol: indexQuote.symbol,
         price: indexQuote.regularMarketPrice,
@@ -1189,7 +1196,8 @@ wss.on('connection', (ws) => {
                 p: tradeData.p,
                 q: tradeData.q,
                 T: tradeData.T,
-                e: 'trade'
+                e: 'trade',
+                m: tradeData.m
               }));
             }
           },

@@ -1,2 +1,0 @@
-export declare const repository = "https://github.com/gadicc/yahoo-finance2";
-//# sourceMappingURL=consts.d.ts.map

@@ -1,0 +1,29 @@
+{
+  "name": "arca-terminal",
+  "version": "1.0.0",
+  "description": "",
+  "main": "dcf_script.js",
+  "scripts": {
+    "requirements": "node requirements.js",
+    "setup": "node setup.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/9347999724/Arca-Intelligence-Terminal.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/9347999724/Arca-Intelligence-Terminal/issues"
+  },
+  "homepage": "https://github.com/9347999724/Arca-Intelligence-Terminal#readme",
+  "dependencies": {
+    "@clack/prompts": "^1.4.0",
+    "axios": "^1.16.1",
+    "dotenv": "^17.4.2",
+    "otplib": "^13.4.0",
+    "picocolors": "^1.1.1"
+  }
+}

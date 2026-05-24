@@ -232,7 +232,8 @@ async function angelAuth() {
 
     if (res.data && res.data.status === true && res.data.data) {
       updateEnv("ANGEL_FEED_TOKEN", res.data.data.feedToken);
-      console.log("🎉 Successfully generated 24-hour Angel One Feed Token!");
+      if (res.data.data.jwtToken) updateEnv("ANGEL_JWT_TOKEN", res.data.data.jwtToken);
+      console.log("🎉 Successfully generated 24-hour Angel One Feed Token & JWT!");
     } else {
       console.error("❌ Failed to login to Angel One:", res.data);
     }
