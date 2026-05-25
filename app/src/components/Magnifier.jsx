@@ -76,8 +76,6 @@ const Magnifier = () => {
     // Copy scroll values recursively with structural mismatch safety
     const copyScroll = (src, dest) => {
       if (!src || !dest) return;
-      if (src.scrollTop > 0) dest.scrollTop = src.scrollTop;
-      if (src.scrollLeft > 0) dest.scrollLeft = src.scrollLeft;
       
       if (src.tagName === 'INPUT' || src.tagName === 'SELECT' || src.tagName === 'TEXTAREA') {
         dest.value = src.value;
@@ -291,6 +289,9 @@ const Magnifier = () => {
         }
       };
 
+      // Force layout calculation synchronously so that scroll clamping works
+      void mirrorRef.current.offsetHeight;
+      
       syncScrolls(originalTarget, targetNode);
     }
   }, [active, targetNode, originalTarget]);
