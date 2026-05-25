@@ -1,5 +1,14 @@
 # ⚡ ARCA Intelligence Terminal
 
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/2ba1b082-af1a-4c1d-9bad-488dcbf92b7b" width="49%" />
+  <img src="https://github.com/user-attachments/assets/837ad601-d7ce-4adc-8cfc-16ec3348a9cb" width="49%" />
+</p>
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/409c2e23-dbc2-46f6-9d5a-730a4a051009" width="49%" />
+  <img src="https://github.com/user-attachments/assets/051e0f05-1995-4761-af34-744fefe32537" width="49%" />
+</p>
+
 A powerful, full-featured terminal and dashboard for algorithmic trading, macroeconomic feeds, stock-specific searches, and LLM integration. ARCA Terminal seamlessly connects to multiple US and Indian brokers, providing live data feeds, options chains, global news, and microstructure analysis.
 
 ---
