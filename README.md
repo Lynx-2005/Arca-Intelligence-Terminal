@@ -17,6 +17,19 @@ A powerful, full-featured terminal and dashboard , macroeconomic feeds, stock-sp
 
 ## 🛠️ Prerequisites
 
+### Install Node.js
+
+- **Windows**
+  - **Winget**: `winget install OpenJS.NodeJS` (latest) or `winget install OpenJS.NodeJS.LTS` (LTS)
+  - **Chocolatey**: `choco install nodejs`
+  - **Manual**: Download and run the `.msi` installer from the official Node.js website
+- **macOS**
+  - **Homebrew**: `brew install node`
+  - **Manual**: Download the `.pkg` installer from the official Node.js website
+- **Linux**
+  - **Ubuntu/Debian**: Use the NodeSource installer, or run `sudo apt install nodejs` and `sudo apt install npm`
+  - **Version Managers (recommended)**: Use nvm (Node Version Manager): `curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh | bash`, then `nvm install --lts`
+
 Before launching the terminal, ensure you have:
 1. **Node.js**: Version 18 or higher installed (`node -v`).
 2. **Ports Available**: Ports `3001` (Backend Proxy) and `5173` (Frontend Vite App) must be free.
