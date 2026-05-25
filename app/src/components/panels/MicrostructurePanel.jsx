@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 
 const formatMs = value => (Number.isFinite(value) ? `${value.toFixed(1)}ms` : '--');
 const formatHz = value => (Number.isFinite(value) ? `${value.toFixed(1)}Hz` : '--');
@@ -435,8 +435,8 @@ const MicrostructurePanel = ({ data, ticker }) => {
   const [activeTab, setActiveTab] = useState('orderflow');
 
   const {
-    status, metrics, book, ofi, liquidity, aggression, absorption, spoofing, smartMoney, hiddenLiquidity,
-    sweep, compression, footprint, regime, alpha, anomalies, execution, dealer,
+    status, metrics, book, ofi, liquidity, aggression,
+    footprint, regime, alpha, execution,
     queue, resiliency, replenishment, priceImpact, adverseSelection, vpin, iceberg,
     consumption, flowRatio, fragility, sequencing, flowVelocity, tradeToxicity,
     sweepPattern, fragmentation, momentumDiv, absorptionPersist, sizeDist, rhythm,

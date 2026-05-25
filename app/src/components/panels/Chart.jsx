@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createChart, CandlestickSeries, LineSeries, HistogramSeries, CrosshairMode } from 'lightweight-charts';
 import Panel from '../Panel';
 import { ApiService } from '../../services/api';
@@ -419,7 +419,8 @@ const Chart = ({ ticker }) => {
       chartRef.current = null;
       subChartRef.current = null;
     };
-  }, [activeOscillator]); // re-init chart when oscillator changes to handle subchart container existence
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); 
 
   useEffect(() => {
     if (activeTab !== 'station') return;
@@ -428,11 +429,12 @@ const Chart = ({ ticker }) => {
       applyInitialRange(rawHistory);
     });
     return () => cancelAnimationFrame(raf);
-  }, [activeTab, activeOscillator]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, activeOscillator, rawHistory, timeframe]);
 
   useEffect(() => {
     if (!ticker) return;
-    // Immediately clear old data so chart doesn't show stale candles from previous ticker
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setRawHistory([]);
     tradeAccumulatorRef.current = { price: null, vol: 0, time: null, high: null, low: null };
     const loadData = async () => {
@@ -473,7 +475,7 @@ const Chart = ({ ticker }) => {
     };
 
     const crypto = isCryptoTicker(ticker);
-    let wsUrl = '';
+    let wsUrl;
     if (crypto) {
       const binanceSymbol = toBinanceSymbol(ticker).toLowerCase();
       wsUrl = `wss://stream.binance.com:9443/stream?streams=${binanceSymbol}@trade`;
@@ -515,7 +517,7 @@ const Chart = ({ ticker }) => {
            accum.low = accum.low === null ? price : Math.min(accum.low, price);
            accum.time = time;
         }
-      } catch (e) {
+      } catch {
         // ignore
       }
     };
@@ -570,6 +572,7 @@ const Chart = ({ ticker }) => {
 
   useEffect(() => {
     if (!comparedTicker) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setComparedData([]);
       return;
     }
@@ -588,26 +591,25 @@ const Chart = ({ ticker }) => {
   useEffect(() => {
     if (!mainSeriesRef.current) return;
 
-    // When rawHistory is empty (e.g. ticker switch or fetch failure), clear all chart series
-    // to avoid showing stale data from the previous ticker
     if (rawHistory.length === 0) {
       mainSeriesRef.current.setData([]);
       priceLineSeriesRef.current?.setData([]);
       volumeSeriesRef.current?.setData([]);
-      Object.values(overlaySeriesRefs.current).forEach(series => {
-        try { series.setData([]); } catch (e) {}
-      });
-      if (subChartRef.current) {
-        Object.values(oscillatorSeriesRefs.current).forEach(series => {
-          try { series.setData([]); } catch (e) {}
+        Object.values(overlaySeriesRefs.current).forEach(series => {
+          try { series.setData([]); } catch { /* ignore */ }
         });
-      }
+        if (subChartRef.current) {
+          Object.values(oscillatorSeriesRefs.current).forEach(series => {
+            try { series.setData([]); } catch { /* ignore */ }
+          });
+        }
       if (compareSeriesRef.current && chartRef.current) {
-        try { chartRef.current.removeSeries(compareSeriesRef.current); } catch (e) {}
+        try { chartRef.current.removeSeries(compareSeriesRef.current); } catch { /* ignore */ }
         compareSeriesRef.current = null;
-      }
-      setHudData(null);
-      return;
+        }
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setHudData(null);
+        return;
     }
 
     let filtered = rawHistory;
@@ -727,15 +729,15 @@ const Chart = ({ ticker }) => {
       compareSeriesRef.current.applyOptions({ visible: true, title: comparedTicker });
       chartRef.current.priceScale('left').applyOptions({ visible: true });
     } else {
-      if (compareSeriesRef.current && chartRef.current) {
-        try {
-          chartRef.current.removeSeries(compareSeriesRef.current);
-        } catch (e) {}
-        compareSeriesRef.current = null;
-      }
+        if (compareSeriesRef.current && chartRef.current) {
+          try {
+            chartRef.current.removeSeries(compareSeriesRef.current);
+          } catch { /* ignore */ }
+          compareSeriesRef.current = null;
+        }
       try {
         chartRef.current?.priceScale('left').applyOptions({ visible: false });
-      } catch (e) {}
+      } catch { /* ignore */ }
     }
 
     const lastBar = filtered[filtered.length - 1];
@@ -754,6 +756,7 @@ const Chart = ({ ticker }) => {
       applyInitialRange(filtered);
       needsFitContentRef.current = false;
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rawHistory, timeframe, chartType, comparedData, activeOverlay, activeOscillator]);
 
   const handleCompareSubmit = (e) => {

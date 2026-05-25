@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import './Magnifier.css';
 
 const Magnifier = () => {
@@ -63,8 +63,8 @@ const Magnifier = () => {
       destCanvas.height = srcCanvas.height;
       try {
         ctx.drawImage(srcCanvas, 0, 0);
-      } catch (err) {
-        // ignore draw errors for non-2d canvases
+      } catch {
+        console.warn("Failed to generate AI insight");
       }
     }
   };
@@ -142,6 +142,7 @@ const Magnifier = () => {
 
     window.addEventListener('contextmenu', handleContextMenu);
     return () => window.removeEventListener('contextmenu', handleContextMenu);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active]);
 
   // Handle cursor tracking inside the panel
@@ -183,6 +184,7 @@ const Magnifier = () => {
 
     window.addEventListener('mousemove', handleMouseMove);
     return () => window.removeEventListener('mousemove', handleMouseMove);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, isPinned, originalTarget]);
 
   useEffect(() => {
@@ -195,6 +197,7 @@ const Magnifier = () => {
     }, refreshMs);
 
     return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, isPinned, originalTarget]);
 
   // Handle mousewheel zoom adjustments inside the lens
@@ -242,7 +245,7 @@ const Magnifier = () => {
 
   // Left click anywhere on screen also dismisses the magnifier
   useEffect(() => {
-    const handleWindowClick = (e) => {
+    const handleWindowClick = () => {
       if (!active) return;
       
       // Prevent click from closing on first mount tick

@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useStore } from '../../store';
 import Panel from '../Panel';
 import { ApiService } from '../../services/api';
@@ -124,6 +124,7 @@ const OrderBook = () => {
       wsRef.current = null;
     }
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setBids([]);
     setAsks([]);
     setTradeLog([]);

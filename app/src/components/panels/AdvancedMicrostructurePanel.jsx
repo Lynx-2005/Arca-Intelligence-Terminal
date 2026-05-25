@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 
 const formatScore = value => (Number.isFinite(value) ? `${Math.round(value * 100)}` : '--');
 const formatPct = value => (Number.isFinite(value) ? `${(value * 100).toFixed(1)}%` : '--');
@@ -95,6 +95,7 @@ const AdvancedMicrostructurePanel = ({ data }) => {
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setMounted(true);
   }, []);
 

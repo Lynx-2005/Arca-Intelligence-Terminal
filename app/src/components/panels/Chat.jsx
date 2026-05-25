@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import Panel from '../Panel';
 import { ApiService } from '../../services/api';
 import { useStore } from '../../store';

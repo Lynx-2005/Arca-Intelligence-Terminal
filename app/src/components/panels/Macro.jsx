@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import Panel from '../Panel';
 import { ApiService } from '../../services/api';
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
+import { LineChart, Line, ResponsiveContainer } from 'recharts';
 
 const MacroItem = ({ title, seriesId, color = "#ffb000" }) => {
   const [data, setData] = useState([]);

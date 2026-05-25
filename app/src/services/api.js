@@ -196,7 +196,6 @@ export const ApiService = {
       const price = data.price || {};
       const fin = data.financialData || {};
       const stats = data.defaultKeyStatistics || {};
-      const summary = data.summaryDetail || {};
       
       // Parse real competitor data from dynamic fetch
       const competitors = this.parseCompetitors(data.competitors, price.regularMarketPrice || 150);
@@ -303,7 +302,7 @@ export const ApiService = {
 
       apiCache.set(cacheKey, parsedIntel, 10); // 10 min TTL
       return parsedIntel;
-    } catch(e) {
+    } catch {
       console.warn("CompanyIntel API failed for", ticker);
       return null;
     }
@@ -484,7 +483,7 @@ export const ApiService = {
               parsedDate = d.toISOString().split('T')[0];
             }
           }
-        } catch (e) {
+        } catch {
           // ignore
         }
         upgrades.push({
@@ -644,7 +643,7 @@ export const ApiService = {
 
       apiCache.set(cacheKey, formatted, 1);
       return formatted;
-    } catch (e) {
+    } catch {
       console.warn("Indices fetch failed");
       return [];
     }
@@ -673,7 +672,7 @@ export const ApiService = {
 
       apiCache.set(cacheKey, formatted, 1);
       return formatted;
-    } catch (e) {
+    } catch {
       console.warn("Currencies fetch failed");
       return [];
     }
@@ -702,7 +701,7 @@ export const ApiService = {
 
       apiCache.set(cacheKey, formatted, 1);
       return formatted;
-    } catch (e) {
+    } catch {
       console.warn("Commodities fetch failed");
       return [];
     }
@@ -711,7 +710,7 @@ export const ApiService = {
   /**
    * Fetch News Headlines
    */
-  async getNews(query = 'markets', isTicker = false) {
+  async getNews(query = 'markets') {
     const cacheKey = `news_${query}`;
     const cached = apiCache.get(cacheKey);
     if (cached) return cached;
@@ -750,7 +749,7 @@ export const ApiService = {
                   parsedTime = pd.toISOString();
                 }
               }
-            } catch (e) {
+            } catch {
               // fallback to current time
             }
 
@@ -767,7 +766,7 @@ export const ApiService = {
          return result;
        }
        throw new Error("Empty news");
-    } catch (e) {
+    } catch {
       console.warn("News fetch failed");
       return [];
     }

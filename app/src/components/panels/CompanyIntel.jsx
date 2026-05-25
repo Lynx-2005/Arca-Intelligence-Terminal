@@ -13,27 +13,8 @@ import {
   Legend,
   CartesianGrid,
   LineChart,
-  Line,
-  BarChart,
-  Bar
+  Line
 } from 'recharts';
-import {
-  Activity,
-  TrendingUp,
-  TrendingDown,
-  AlertTriangle,
-  Layers,
-  Globe,
-  Sliders,
-  Shield,
-  Users,
-  Anchor,
-  Zap,
-  BarChart3,
-  Link,
-  ChevronDown,
-  Target
-} from 'lucide-react';
 
 const CompanyIntel = () => {
   const ticker = useStore(state => state.activeTicker);
@@ -164,7 +145,6 @@ const CompanyIntel = () => {
 
   // Scenario Simulator Math
   const getScenarioOutcomes = () => {
-    const baseMCap = intel.snapshot.marketCap;
     const baseMargin = intel.financials.operatingMargin * 100; // in %
     const baseEPS = intel.financials.eps || 5.0;
 

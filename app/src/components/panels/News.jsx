@@ -1,6 +1,21 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import Panel from '../Panel';
 import { ApiService } from '../../services/api';
+
+const formatTime = (timeStr) => {
+  if (!timeStr) return 'Recent';
+  try {
+    const date = new Date(timeStr);
+    const diff = Date.now() - date.getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  } catch {
+    return 'Recent';
+  }
+};
 
 const News = ({ query = 'markets' }) => {
   const [news, setNews] = useState([]);
@@ -38,21 +53,6 @@ const News = ({ query = 'markets' }) => {
     if (impact === 'HIGH') return 'var(--accent-red)';
     if (impact === 'MED') return 'var(--accent-amber)';
     return 'var(--accent-blue)';
-  };
-
-  const formatTime = (timeStr) => {
-    if (!timeStr) return 'Recent';
-    try {
-      const date = new Date(timeStr);
-      const diff = Date.now() - date.getTime();
-      const mins = Math.floor(diff / 60000);
-      if (mins < 60) return `${mins}m ago`;
-      const hrs = Math.floor(mins / 60);
-      if (hrs < 24) return `${hrs}h ago`;
-      return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-    } catch {
-      return 'Recent';
-    }
   };
 
   return (

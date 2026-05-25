@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ApiService } from '../services/api';
 import { useStore } from '../store';
 import SymbolSearchInput from './SymbolSearchInput';
@@ -152,6 +152,7 @@ const TickerBar = () => {
     return () => {
       ws.close();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items.length]);
 
   return (

@@ -145,7 +145,6 @@ export class OrderflowRenderer {
   _hitZone(x, y) {
     const cw = this._chartW();
     const ch = this._chartH();
-    const pax = this._priceAxisX();
     const domX = this._domX();
     if (y < ch) {
       if (x < cw) return 'chart';
@@ -405,7 +404,6 @@ export class OrderflowRenderer {
     // ── Zoom thresholds ──
     const showFootprint = cw >= 40;
     const showText = cw >= 90;
-    const showDeltaPerLevel = cw >= 160;
 
     // ── Price grid ──
     const priceRange = this.priceTop - this.priceBottom || 1;
@@ -570,7 +568,7 @@ export class OrderflowRenderer {
         const isPain = level.type === 'maxpain';
         const sourceStr = level.source || 'Deribit';
         
-        let label = '';
+        let label;
         if (isPain) {
            label = `${level.expirationLabel} Max Pain (${sourceStr})`;
         } else {
@@ -886,7 +884,7 @@ export class OrderflowRenderer {
 
   // ═══════════════════ DOM RENDERING ═══════════════════
 
-  _drawDOM(ctx, dom, chartH) {
+  _drawDOM(ctx, dom) {
     const domX = this._domX();
     const domW = this.DOM_W;
     const totalH = this.height;

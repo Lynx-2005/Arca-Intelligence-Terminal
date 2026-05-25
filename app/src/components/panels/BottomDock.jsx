@@ -8,7 +8,7 @@ const BottomDock = () => {
   const [indices, setIndices] = useState([]);
   const [currencies, setCurrencies] = useState([]);
   const [commodities, setCommodities] = useState([]);
-  const [isLoading, setIsLoading] = useState(false);
+
   const [correlationData, setCorrelationData] = useState([]);
   const [macroAlerts, setMacroAlerts] = useState([]);
 
@@ -16,7 +16,7 @@ const BottomDock = () => {
   useEffect(() => {
     let isMounted = true;
     const fetchDockData = async () => {
-      setIsLoading(true);
+
       try {
         const [indData, curData, comData] = await Promise.all([
           ApiService.getGlobalIndices(),
@@ -30,8 +30,6 @@ const BottomDock = () => {
         }
       } catch (err) {
         console.error("Failed to load dock data", err);
-      } finally {
-        if (isMounted) setIsLoading(false);
       }
     };
 

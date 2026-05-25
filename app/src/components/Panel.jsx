@@ -1,4 +1,4 @@
-import React from 'react';
+
 
 const Panel = ({ title, children, className = '', headerActions = null }) => {
   return (

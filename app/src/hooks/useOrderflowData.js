@@ -60,6 +60,7 @@ export const useOrderflowData = (ticker, timeframe) => {
     // Clear data so we don't mix symbols
     dataRef.current = [];
     domRef.current = { bids: [], asks: [], bestBid: 0, bestAsk: 0 };
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setStatus('connecting');
     setTradeCount(0);
     tickCountRef.current = 0;
@@ -190,7 +191,7 @@ export const useOrderflowData = (ticker, timeframe) => {
     };
 
     const crypto = isCryptoTicker(ticker);
-    let wsUrl = '';
+    let wsUrl;
     if (crypto) {
       const binanceSymbol = toBinanceSymbol(ticker).toLowerCase();
       // Subscribe to BOTH trade stream AND depth (order book) stream
@@ -314,7 +315,9 @@ export const useOrderflowData = (ticker, timeframe) => {
             handleTick(price, vol, tradeTime, isBuyerMaker);
           }
         }
-      } catch (_) {}
+      } catch {
+        // ignore parsing errors
+      }
     };
 
     ws.onerror = () => setStatus('error');
@@ -394,6 +397,7 @@ export const useOrderflowData = (ticker, timeframe) => {
         }
       }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ticker, timeframe]);
 
   return { dataRef, domRef, status, tradeCount, optionsLevels };

@@ -5,7 +5,7 @@ export const useStore = create((set) => ({
   activeTicker: (() => {
     try {
       return localStorage.getItem('arca_active_ticker') || 'AAPL';
-    } catch (e) {
+    } catch {
       return 'AAPL';
     }
   })(),
@@ -14,7 +14,7 @@ export const useStore = create((set) => ({
   activePanel: (() => {
     try {
       return localStorage.getItem('arca_active_panel') || 'MAP';
-    } catch (e) {
+    } catch {
       return 'MAP';
     }
   })(),
@@ -24,7 +24,7 @@ export const useStore = create((set) => ({
     try {
       const stored = localStorage.getItem('arca_watchlist');
       return stored ? JSON.parse(stored) : ['AAPL', 'MSFT', 'NVDA', 'TSLA', 'AMZN', 'META', 'GOOGL'];
-    } catch (e) {
+    } catch {
       return ['AAPL', 'MSFT', 'NVDA', 'TSLA', 'AMZN', 'META', 'GOOGL'];
     }
   })(),
@@ -37,20 +37,26 @@ export const useStore = create((set) => ({
     try {
       localStorage.setItem('arca_active_ticker', ticker);
       localStorage.setItem('arca_active_panel', 'COMPANY');
-    } catch (e) {}
+    } catch {
+      // ignore
+    }
     set({ activeTicker: ticker, activePanel: 'COMPANY' });
   },
   setQuery: (query) => set({ activeQuery: query }),
   setCountry: (countryCode) => {
     try {
       localStorage.setItem('arca_active_panel', 'MACRO');
-    } catch (e) {}
+    } catch {
+      // ignore
+    }
     set({ activeCountry: countryCode, activePanel: 'MACRO' });
   },
   setPanel: (panelName) => {
     try {
       localStorage.setItem('arca_active_panel', panelName);
-    } catch (e) {}
+    } catch {
+      // ignore
+    }
     set({ activePanel: panelName });
   },
   

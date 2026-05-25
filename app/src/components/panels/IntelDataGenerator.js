@@ -1,19 +1,9 @@
-// Deterministic Seeded Random Utility (only for fallback scenarios)
-const getSeededRandom = (seedStr) => {
-  let h = 0;
-  for (let i = 0; i < seedStr.length; i++) {
-    h = seedStr.charCodeAt(i) + ((h << 5) - h);
-  }
-  return () => {
-    const x = Math.sin(h++) * 10000;
-    return x - Math.floor(x);
-  };
-};
+// Deterministic Seeded Random Utility removed because it was unused
 
 // Calculate Altman Z-Score from real financial data
 const calculateAltmanZ = (financials, snapshot, balanceSheet) => {
-  const { revenue, netIncome, operatingMargin } = financials;
-  const { marketCap, debt, cashReserves } = snapshot;
+  const { revenue, operatingMargin } = financials;
+  const { marketCap } = snapshot;
   
   if (!balanceSheet || !revenue || !marketCap) {
     return null;
@@ -104,7 +94,7 @@ const calculatePiotroskiF = (financials, incomeStatements, balanceSheets, cashFl
 };
 
 // Generate SEC filings heatmap from real filing data
-const generateFilingsHeatmap = (secFilings, sector) => {
+const generateFilingsHeatmap = (secFilings) => {
   if (!secFilings || secFilings.length === 0) return [];
   
   const typeCounts = {};
@@ -121,7 +111,7 @@ const generateFilingsHeatmap = (secFilings, sector) => {
     else if (type.includes('8-K')) category = 'Current Report';
     else if (type.includes('4')) category = 'Insider Trading';
     
-    let color = 'var(--text-secondary)';
+    let color;
     if (count > 5) color = 'var(--accent-red)';
     else if (count > 2) color = 'var(--accent-amber)';
     else color = 'var(--accent-blue)';
@@ -136,7 +126,7 @@ const generateFilingsHeatmap = (secFilings, sector) => {
 };
 
 // Build executive mention network from real insider/holder data
-const buildExecutiveNetwork = (ticker, insiderHolders, institutionalHolders, companyName) => {
+const buildExecutiveNetwork = (ticker, insiderHolders, institutionalHolders) => {
   const nodes = [
     { id: ticker, label: ticker, group: 'company', val: 35 }
   ];
@@ -222,7 +212,7 @@ const buildOwnershipNetwork = (ticker, institutionalHolders, insiderHolders, maj
 
 
 // Build competitive analysis from real peer data
-const buildCompetitiveAnalysis = (ticker, competitors, financials, incomeStatements) => {
+const buildCompetitiveAnalysis = (ticker, competitors, financials) => {
   const peers = competitors?.peers || [];
   
   const peerData = peers.map(p => ({
@@ -312,10 +302,8 @@ const buildPredictions = (earningsTrend, financials, snapshot) => {
 };
 
 // Build executive intel from real company officers
-const buildExecutiveIntel = (companyOfficers, insiderHolders, stats) => {
+const buildExecutiveIntel = (companyOfficers, insiderHolders) => {
   const ceo = companyOfficers?.find(o => o.title?.toLowerCase().includes('ceo'));
-  const cfo = companyOfficers?.find(o => o.title?.toLowerCase().includes('cfo'));
-  const coo = companyOfficers?.find(o => o.title?.toLowerCase().includes('operating'));
   
   const ceoProfile = ceo ? 
     `${ceo.name} (${ceo.title || 'CEO'}${ceo.age ? ', Age ' + ceo.age : ''}). Total compensation: $${((ceo.totalPay || 0) / 1e6).toFixed(1)}M in FY${ceo.fiscalYear || '2025'}.` :
@@ -352,7 +340,7 @@ const buildExecutiveIntel = (companyOfficers, insiderHolders, stats) => {
 
 
 // Build SEC filings intelligence from real data
-const buildFilingsIntelligence = (secFilings, companyName, sector) => {
+const buildFilingsIntelligence = (secFilings, companyName) => {
   const recentFilings = secFilings?.slice(0, 5) || [];
   
   if (recentFilings.length === 0) {
@@ -386,7 +374,6 @@ const buildFilingsIntelligence = (secFilings, companyName, sector) => {
 // Build smart money summary from real ownership data
 const buildSmartMoney = (ownership, netShareActivity, institutionalHolders) => {
   const instPct = ownership?.institutionalPct || 'N/A';
-  const insiderPct = ownership?.insiderPct || 'N/A';
   
   let instChange = 'N/A';
   if (netShareActivity) {
@@ -423,7 +410,6 @@ const buildSmartMoney = (ownership, netShareActivity, institutionalHolders) => {
 // Build valuation sensitivity matrix from real financials
 const buildValuationSensitivity = (financials) => {
   const peRatio = financials?.peRatio || 20;
-  const growthRate = financials?.revenueGrowth || 0.05;
   
   const rowValues = [6, 7, 8, 9, 10];
   const colValues = [2, 3, 4, 5, 6];
@@ -470,7 +456,6 @@ export const generateIntelData = (ticker, rawIntel) => {
   aiDossier.moat = aiDossier.moat || 'Moat analysis pending.';
   aiDossier.supplyChainRisk = aiDossier.supplyChainRisk || 'Supply chain analysis pending.';
   aiDossier.geographicExposure = aiDossier.geographicExposure || 'Geographic exposure analysis pending.';
-  const supplyChainAI = rawIntel.supplyChainAI || {};
   const threatsAI = rawIntel.threatsAI || [];
   const trends = rawIntel.trends || {};
   const calendarEvents = rawIntel.calendarEvents || {};
@@ -478,19 +463,18 @@ export const generateIntelData = (ticker, rawIntel) => {
 
   const latestIncome = financialStatements.incomeStatements?.[0] || {};
   const latestBalanceSheet = financialStatements.balanceSheets?.[0] || {};
-  const latestCashFlow = financialStatements.cashFlows?.[0] || {};
 
   const altmanZ = calculateAltmanZ(financials, snapshot, latestBalanceSheet);
   const beneishM = calculateBeneishM(financialStatements.incomeStatements);
   const piotroskiF = calculatePiotroskiF(financials, financialStatements.incomeStatements, financialStatements.balanceSheets, financialStatements.cashFlows);
 
-  const executiveIntel = buildExecutiveIntel(companyOfficers, ownership.insiderHolders, rawIntel.stats);
-  const executiveNetwork = buildExecutiveNetwork(tickerUpper, ownership.insiderHolders, ownership.institutionalHolders, rawIntel.companyName);
+  const executiveIntel = buildExecutiveIntel(companyOfficers, ownership.insiderHolders);
+  const executiveNetwork = buildExecutiveNetwork(tickerUpper, ownership.insiderHolders, ownership.institutionalHolders);
   const ownershipNetwork = buildOwnershipNetwork(tickerUpper, ownership.institutionalHolders, ownership.insiderHolders, ownership.majorHolders);
 
-  const competitiveAnalysis = buildCompetitiveAnalysis(tickerUpper, competitors, financials, financialStatements.incomeStatements);
+  const competitiveAnalysis = buildCompetitiveAnalysis(tickerUpper, competitors, financials);
   const predictions = buildPredictions(earnings.trend, financials, snapshot);
-  const filingsIntelligence = buildFilingsIntelligence(secFilings, rawIntel.companyName, rawIntel.sector);
+  const filingsIntelligence = buildFilingsIntelligence(secFilings, rawIntel.companyName);
   const smartMoney = buildSmartMoney(ownership, ownership.netShareActivity, ownership.institutionalHolders);
   const valuationSensitivity = buildValuationSensitivity(financials);
 
@@ -505,7 +489,7 @@ export const generateIntelData = (ticker, rawIntel) => {
 
   const filings = {
     ...filingsIntelligence,
-    heatmap: generateFilingsHeatmap(secFilings, rawIntel.sector)
+    heatmap: generateFilingsHeatmap(secFilings)
   };
 
   const forensics = {

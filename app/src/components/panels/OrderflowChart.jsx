@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Panel from '../Panel';
 import { useOrderflowData } from '../../hooks/useOrderflowData';
 import { OrderflowRenderer } from './OrderflowRenderer';

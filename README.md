@@ -82,3 +82,83 @@ If the servers were sent to the background or if a terminal session was closed w
 ---
 
 *Powered by ARCA Intelligence*
+
+## Step-by-Step Setup Guide
+
+Follow these steps to download, install, and run the Arca Intelligence Terminal on your local machine.
+
+### Prerequisites
+- [Node.js](https://nodejs.org/en/download/) (v16+)
+- [npm](https://www.npmjs.com/) (usually comes with Node.js)
+- API Keys for Brokers (Optional, required for live trading)
+
+### 1. Clone the Repository
+Open your terminal and run:
+```bash
+git clone https://github.com/yourusername/arca-terminal.git
+cd arca-terminal
+```
+
+### 2. Install Dependencies
+Install dependencies for both the frontend (`app`) and the backend (`server`).
+
+```bash
+# Install frontend dependencies
+cd app
+npm install
+
+# Install backend dependencies
+cd ../server
+npm install
+cd ..
+```
+
+### 3. Configure Environment Variables
+You need to create `.env` files in both the `app` and `server` directories to configure your API keys.
+
+1. **Backend `.env`**:
+   Copy the example file or create a new one in the `server` directory:
+   ```bash
+   touch server/.env
+   ```
+   Add the following variables to `server/.env`:
+   ```env
+   # Example Broker Configuration
+   ZERODHA_API_KEY=your_zerodha_api_key
+   ZERODHA_API_SECRET=your_zerodha_secret
+   UPSTOX_API_KEY=your_upstox_api_key
+   UPSTOX_API_SECRET=your_upstox_secret
+   ```
+
+2. **Frontend `.env`**:
+   Create a new one in the `app` directory:
+   ```bash
+   touch app/.env
+   ```
+   Add the following variables to `app/.env`:
+   ```env
+   VITE_API_URL=http://localhost:3000
+   VITE_WS_URL=ws://localhost:3000
+   ```
+
+### 4. Broker API Setup (Redirect URLs)
+If you are integrating brokers like Zerodha Kite or Upstox, you must configure the **Redirect URLs** in their developer portals when you create your API app.
+
+**Provide these exact Redirect URLs in your broker portal:**
+- **Zerodha:** `http://localhost:3000/api/brokers/zerodha/callback`
+- **Upstox:** `http://localhost:3000/api/brokers/upstox/callback`
+
+### 5. Run the Application
+Start both the backend server and the frontend client simultaneously.
+
+```bash
+# Terminal 1: Start the Backend Proxy Server
+cd server
+npm run dev
+
+# Terminal 2: Start the Frontend App
+cd app
+npm run dev
+```
+
+Your terminal will now be running at `http://localhost:5173`.

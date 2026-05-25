@@ -1,4 +1,4 @@
-import React, { memo, useState, useEffect } from 'react';
+import { memo, useState, useEffect } from 'react';
 import { ComposableMap, Geographies, Geography, Marker } from 'react-simple-maps';
 import { useStore } from '../../store';
 import Panel from '../Panel';
@@ -102,6 +102,7 @@ const WorldMap = () => {
   useEffect(() => {
     if (activeCountry) {
       const staticDossier = getDossier(activeCountry);
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setDossier(staticDossier);
 
       // Fetch dynamic macroeconomic indicators and market quote

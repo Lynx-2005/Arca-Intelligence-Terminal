@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import * as d3Geo from 'd3-geo';
 import * as topojson from 'topojson-client';
 import { fetchGDELTGeoData } from '../../services/gdelt';
@@ -500,7 +500,10 @@ const MapCanvas = ({ data, hoveredEvent, onHoverEvent, onClickEvent }) => {
   const handlePointerDown = (e) => {
     isDragging.current = true;
     dragStart.current = { x: e.clientX - transform.x, y: e.clientY - transform.y };
-    if (fgCanvasRef.current) fgCanvasRef.current.setPointerCapture(e.pointerId);
+    if (fgCanvasRef.current) {
+      fgCanvasRef.current.setPointerCapture(e.pointerId);
+      fgCanvasRef.current.style.cursor = 'grabbing';
+    }
   };
 
   const handlePointerMove = (e) => {
@@ -538,7 +541,10 @@ const MapCanvas = ({ data, hoveredEvent, onHoverEvent, onClickEvent }) => {
 
   const handlePointerUp = (e) => {
     isDragging.current = false;
-    if (fgCanvasRef.current) fgCanvasRef.current.releasePointerCapture(e.pointerId);
+    if (fgCanvasRef.current) {
+      fgCanvasRef.current.releasePointerCapture(e.pointerId);
+      fgCanvasRef.current.style.cursor = hoveredEvent ? 'pointer' : 'crosshair';
+    }
   };
 
   return (
@@ -549,7 +555,7 @@ const MapCanvas = ({ data, hoveredEvent, onHoverEvent, onClickEvent }) => {
       />
       <canvas
         ref={fgCanvasRef}
-        style={{ position: 'absolute', top: 0, left: 0, zIndex: 2, cursor: isDragging.current ? 'grabbing' : (hoveredEvent ? 'pointer' : 'crosshair') }}
+        style={{ position: 'absolute', top: 0, left: 0, zIndex: 2, cursor: hoveredEvent ? 'pointer' : 'crosshair' }}
         onWheel={handleWheel}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
@@ -674,7 +680,6 @@ const RightHUD = ({ event, onClose }) => {
 
 // --- Main Container ---
 const GlobalNewsMap = () => {
-  const [rawNewsData, setRawNewsData] = useState([]);
   const [enrichedData, setEnrichedData] = useState([]);
   const [hoveredEvent, setHoveredEvent] = useState(null);
   const [selectedEvent, setSelectedEvent] = useState(null);
@@ -685,7 +690,6 @@ const GlobalNewsMap = () => {
     const loadData = async () => {
       const data = await fetchGDELTGeoData();
       if (data && data.features) {
-        setRawNewsData(data.features);
         setEnrichedData(FORMAT_DATA(data.features));
       }
     };

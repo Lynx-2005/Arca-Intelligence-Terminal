@@ -296,7 +296,6 @@ export const fetchGDELTGeoData = async () => {
         items.forEach(item => {
           const title = item.querySelector("title")?.textContent || "";
           const link = item.querySelector("link")?.textContent || "";
-          const source = item.querySelector("source")?.textContent || "Google News";
           const rawDesc = item.querySelector("description")?.textContent || "";
           const pubDate = item.querySelector("pubDate")?.textContent || "";
           
@@ -341,6 +340,6 @@ export const fetchGDELTGeoData = async () => {
   }
 };
 
-export const fetchGDELTByTopic = async (topic) => {
+export const fetchGDELTByTopic = async () => {
   return { type: "FeatureCollection", features: [] };
 };

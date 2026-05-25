@@ -1,6 +1,21 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ApiService } from '../services/api';
-import { Zap, AlertTriangle, Play, Pause } from 'lucide-react';
+import { Zap } from 'lucide-react';
+
+const formatTime = (timeStr) => {
+  if (!timeStr) return '';
+  try {
+    const date = new Date(timeStr);
+    const diff = Date.now() - date.getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  } catch {
+    return '';
+  }
+};
 
 const NewsTicker = () => {
   const [newsItems, setNewsItems] = useState([]);
@@ -62,21 +77,6 @@ const NewsTicker = () => {
     if (impact === 'HIGH') return 'var(--accent-red)';
     if (impact === 'MED') return 'var(--accent-amber)';
     return 'var(--accent-blue)';
-  };
-
-  const formatTime = (timeStr) => {
-    if (!timeStr) return '';
-    try {
-      const date = new Date(timeStr);
-      const diff = Date.now() - date.getTime();
-      const mins = Math.floor(diff / 60000);
-      if (mins < 60) return `${mins}m ago`;
-      const hrs = Math.floor(mins / 60);
-      if (hrs < 24) return `${hrs}h ago`;
-      return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-    } catch {
-      return '';
-    }
   };
 
   return (

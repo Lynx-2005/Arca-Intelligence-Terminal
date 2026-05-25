@@ -4,7 +4,6 @@ const MAX_LEVELS = 10;
 const OFI_WINDOW = 50;
 const ANOMALY_WINDOW_MS = 8000;
 const SPOOF_WINDOW_MS = 1500;
-const FOOTPRINT_BUCKETS = 14;
 const RENDER_THROTTLE_MS = 60;
 const QUEUE_TRACK_WINDOW = 30;
 const VPIN_BUCKET_SIZE = 50;
@@ -63,7 +62,7 @@ const restorePersistedFootprint = (engine, storage, sessionId, symbol) => {
       };
     }
     return true;
-  } catch (err) {
+  } catch {
     return false;
   }
 };
@@ -87,7 +86,7 @@ const persistFootprint = (engine, storage, sessionId, symbol, now) => {
 
   try {
     storage.setItem(buildStorageKey(sessionId, symbol), JSON.stringify(payload));
-  } catch (err) {
+  } catch {
     // ignore storage failures
   }
 };
@@ -682,7 +681,7 @@ const updateResiliency = (engine, bids, asks, liquidityTotal, now) => {
 };
 
 // Liquidity Replenishment Velocity
-const updateReplenishmentVelocity = (engine, liquidityTotal, now) => {
+const updateReplenishmentVelocity = (engine, liquidityTotal) => {
   const r = engine.replenishment;
   const delta = liquidityTotal - (r.lastLiquidity || liquidityTotal);
   r.lastLiquidity = liquidityTotal;
@@ -720,7 +719,7 @@ const updateAdverseSelection = (engine, priceImpact, ofiValue, aggressionIndex, 
 };
 
 // VPIN-style Toxicity
-const updateVPIN = (engine, size, isBuy, now) => {
+const updateVPIN = (engine, size, isBuy) => {
   const v = engine.vpin;
   if (isBuy) v.currentBucket.buyVol += size;
   else v.currentBucket.sellVol += size;
@@ -768,7 +767,7 @@ const updateIceberg = (engine, bids, asks, now) => {
 };
 
 // Liquidity Consumption Rate
-const updateConsumption = (engine, liquidityTotal, now) => {
+const updateConsumption = (engine, liquidityTotal) => {
   const c = engine.consumption;
   const prevLiq = c.lastLiquidity || liquidityTotal;
   const rate = Math.max(0, prevLiq - liquidityTotal) / 1000;
@@ -780,7 +779,7 @@ const updateConsumption = (engine, liquidityTotal, now) => {
 };
 
 // Passive vs Aggressive Flow Ratio
-const updateFlowRatio = (engine, tradeRate, avgTradeSize) => {
+const updateFlowRatio = (engine) => {
   const f = engine.flowRatio;
   const passiveScore = clamp(1 - Math.abs(engine.ofiValue), 0, 1);
   const aggressiveScore = clamp(Math.abs(engine.aggBuyEma - engine.aggSellEma) / (engine.aggBuyEma + engine.aggSellEma + 1), 0, 1);
@@ -843,7 +842,7 @@ const updateSequencing = (engine, now) => {
 };
 
 // Aggressive Flow Velocity
-const updateFlowVelocity = (engine, size, isBuy, now) => {
+const updateFlowVelocity = (engine, size, isBuy) => {
   const v = engine.flowVelocity;
   const currentVol = isBuy ? size : 0;
   const currentSell = isBuy ? 0 : size;
@@ -869,7 +868,7 @@ const updateTradeToxicity = (engine, size, isBuy, avgTradeSize, ofiValue) => {
 };
 
 // Sweep Pattern Recognition
-const updateSweepPattern = (engine, bestBid, bestAsk, prevBestBid, prevBestAsk, tickSize, bids, asks) => {
+const updateSweepPattern = (engine, bestBid, bestAsk, prevBestBid, prevBestAsk, tickSize) => {
   const s = engine.sweepPattern;
   let levelsCrossed = 0;
   let direction = 0;
@@ -986,7 +985,7 @@ const updateRhythm = (engine, now) => {
 };
 
 // Sweep Exhaustion
-const updateSweepExhaustion = (engine, sweepScore, aggressionIndex, liquidityTotal) => {
+const updateSweepExhaustion = (engine, sweepScore, aggressionIndex) => {
   const s = engine.sweepExhaustion;
   if (sweepScore > 0.7 && Math.abs(aggressionIndex) < 0.3) {
     s.failedSweeps++;
@@ -1422,6 +1421,7 @@ export const useMicrostructureEngine = (ticker, enabled = true) => {
 
   useEffect(() => {
     engineRef.current = initEngine();
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setSnapshot(defaultSnapshot);
   }, [ticker]);
 
@@ -1517,7 +1517,7 @@ export const useMicrostructureEngine = (ticker, enabled = true) => {
             schedulePublish();
           }
         }
-      } catch (err) {
+      } catch {
         // ignore session init failures
       }
     };
@@ -1732,14 +1732,14 @@ export const useMicrostructureEngine = (ticker, enabled = true) => {
       // Elite indicator calculations
       updateQueueIntelligence(engine, bids, asksAsc, now);
       updateResiliency(engine, bids, asksAsc, liquidityTotal, now);
-      updateReplenishmentVelocity(engine, liquidityTotal, now);
+      updateReplenishmentVelocity(engine, liquidityTotal);
       updatePriceImpactModel(engine, mid, bids, asksAsc, aggressionIndex, engine.tradeRateEma);
       updateAdverseSelection(engine, engine.priceImpactEma, engine.ofiValue, aggressionIndex, voidScore);
       updateIceberg(engine, bids, asksAsc, now);
-      updateConsumption(engine, liquidityTotal, now);
-      updateFlowRatio(engine, engine.tradeRateEma, engine.avgTradeSizeEma);
+      updateConsumption(engine, liquidityTotal);
+      updateFlowRatio(engine);
       updateFragility(engine, bids, asksAsc, mid);
-      updateSweepPattern(engine, bestBid, bestAsk, prevBestBid, prevBestAsk, tickSize, bids, asksAsc);
+      updateSweepPattern(engine, bestBid, bestAsk, prevBestBid, prevBestAsk, tickSize);
       updateMomentumDivergence(engine, mid, aggressionIndex, engine.ofiValue);
       updateAbsorptionPersistence(engine, absorptionScore, now);
       updateMMDefense(engine, bidsWithIntensity, asksWithIntensity, absorptionScore);
@@ -1752,7 +1752,7 @@ export const useMicrostructureEngine = (ticker, enabled = true) => {
       updateHiddenAlpha(engine, engine.ofiValue, absorptionScore, engine.fragmentation, engine.vpin.score);
       updateToxicLiquidity(engine, engine.vpin.score, engine.adverseSelection, engine.fragility.score);
       updateTacticalEntry(engine, engine.sweepExhaustion, engine.momentumDiv, engine.executionConviction, engine.vpin.score);
-      updateSweepExhaustion(engine, sweepScore, aggressionIndex, liquidityTotal);
+      updateSweepExhaustion(engine, sweepScore, aggressionIndex);
 
       engine.predictive = buildPredictiveSignals(engine, {
         bids,
@@ -1899,8 +1899,8 @@ export const useMicrostructureEngine = (ticker, enabled = true) => {
       rebuildFootprintBuckets(engine, mid, engine.snapshot.book.bids, engine.snapshot.book.asks);
 
       // Elite trade-based indicators
-      updateVPIN(engine, size, isBuy, now);
-      updateFlowVelocity(engine, size, isBuy, now);
+      updateVPIN(engine, size, isBuy);
+      updateFlowVelocity(engine, size, isBuy);
       updateTradeToxicity(engine, size, isBuy, engine.avgTradeSizeEma, engine.ofiValue);
       updateFragmentation(engine, size, now);
       updateSequencing(engine, now);
@@ -1939,8 +1939,8 @@ export const useMicrostructureEngine = (ticker, enabled = true) => {
         if (data?.e === 'trade' || data?.T || data?.p) {
           handleTrade(data);
         }
-      } catch (err) {
-        console.warn('Microstructure feed parse error', err);
+      } catch {
+        console.warn('Microstructure feed parse error');
       }
     };
 
@@ -1970,6 +1970,7 @@ export const useMicrostructureEngine = (ticker, enabled = true) => {
       active = false;
       ws.close(1000, 'cleanup');
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ticker, enabled]);
 
   return snapshot;

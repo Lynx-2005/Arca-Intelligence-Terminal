@@ -1,8 +1,8 @@
-import React, { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import Panel from '../Panel';
 import { ApiService } from '../../services/api';
 import { useStore } from '../../store';
-import { Trash2, TrendingUp, HelpCircle, CornerDownLeft, Plus } from 'lucide-react';
+import { Trash2, TrendingUp, HelpCircle, CornerDownLeft } from 'lucide-react';
 import SymbolSearchInput from '../SymbolSearchInput';
 
 const Watchlist = () => {
