@@ -7,6 +7,8 @@ const SERVER = path.join(ROOT, 'server');
 const ROOT_MODULES = path.join(ROOT, 'node_modules');
 const SERVER_MODULES = path.join(SERVER, 'node_modules');
 
+const APP = path.join(ROOT, 'app');
+
 function banner(text) {
   console.log('');
   console.log('╔' + '═'.repeat(58) + '╗');
@@ -42,6 +44,7 @@ console.log('');
 
 run(ROOT);
 run(SERVER);
+run(APP);
 
 console.log('');
 console.log('  ──────────────────────────────────────────');
