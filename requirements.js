@@ -27,7 +27,7 @@ function run(dir) {
   }
 
   console.log(`  ⌛ Installing ${name}/ dependencies...`);
-  execSync('npm install', { cwd: dir, stdio: 'inherit' });
+  execSync('npm install --legacy-peer-deps', { cwd: dir, stdio: 'inherit' });
   console.log(`  ✓ ${name}/ — done`);
 }
 
