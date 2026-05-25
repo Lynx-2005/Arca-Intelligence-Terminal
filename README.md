@@ -15,6 +15,8 @@
 
 A powerful, full-featured terminal and dashboard for algorithmic trading, macroeconomic feeds, stock-specific searches, and LLM integration. ARCA Terminal seamlessly connects to multiple US and Indian brokers, providing live data feeds, options chains, global news, and microstructure analysis.
 
+📖 **[Read the Official Indicators & Analytics Documentation](docs/INDICATORS.md)** to learn how to interpret the Microstructure Regimes, Max Pain options engine, and SEC forensic scoring algorithms.
+
 ---
 
 ## ✨ Features
