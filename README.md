@@ -57,7 +57,7 @@ Before launching the terminal, ensure you have:
 ### 1. Clone the Repository
 Open your terminal and clone the repository:
 ```bash
-git clone https://github.com/yourusername/arca-terminal.git
+git clone https://github.com/Lynx-2005/Arca-Intelligence-Terminal.git
 cd Arca-Intelligence-Terminal
 ```
 
