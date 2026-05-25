@@ -1,12 +1,13 @@
 # ⚡ ARCA Intelligence Terminal
 
-A powerful, full-featured terminal and dashboard for algorithmic trading, macroeconomic feeds, stock-specific searches, and LLM integration. ARCA Terminal seamlessly connects to multiple US and Indian brokers, providing live data feeds, options chains, global news, and microstructure analysis.
+A powerful, full-featured terminal and dashboard , macroeconomic feeds, stock-specific searches, and LLM integration. ARCA Terminal seamlessly connects to crypto feed ,multiple US and Indian brokers, providing live data feeds, global news, and microstructure analysis.
 
 ---
 
 ## ✨ Features
 
 - **Multi-Broker Support**: Native integrations for leading US brokers (Alpaca, Tradier, Tradestation, Interactive Brokers) and Indian brokers (Fyers, Zerodha Kite, Angel One, Upstox, Dhan).
+- **Crypto-Feed**: use binance open websockets ,so no keys required!.
 - **Interactive Setup Wizard**: An animated, secure CLI tool to easily configure all your API keys and automated authentication flows.
 - **Global Macro & News**: Live global news mapping, SEC dossiers, and macroeconomic indicators.
 - **Microstructure & Order Books**: Live L2 order book visualization and microstructure analysis.
