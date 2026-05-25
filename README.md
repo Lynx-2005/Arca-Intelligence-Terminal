@@ -40,23 +40,12 @@ node setup.js
 *Follow the on-screen instructions to configure OpenRouter, US Brokers, and Indian Brokers. The wizard handles automated login flows (like TOTP) automatically.*
 
 ### 3. Start the Terminal
+After finishing the setup run this command to launch the terminal
 
-For the terminal to function with live data feeds, you must run both the backend server and the frontend client simultaneously.
-
-**A. Start the API Backend Proxy**
-Open a new terminal window:
 ```bash
-cd server
-node index.js
+./start.sh
 ```
-*Wait for the message: `Server running on port 3001`*
 
-**B. Start the Frontend Client**
-Open another terminal window:
-```bash
-cd app
-npm run dev
-```
 *The client will launch at `http://localhost:5173`*
 
 ---
@@ -65,11 +54,7 @@ npm run dev
 
 To stop the servers gracefully, go to the terminal windows where they are running and press `Ctrl + C`.
 
-**Clean Background Port Liberation:**
-If the servers were sent to the background or if a terminal session was closed without stopping them, you can forcefully kill the processes on their respective ports:
 
-* **Stop Backend Proxy (Port 3001)**: `kill $(lsof -t -i:3001)`
-* **Stop Frontend Client (Port 5173)**: `kill $(lsof -t -i:5173)`
 
 ---
 
