@@ -9,6 +9,10 @@
   <img src="https://github.com/user-attachments/assets/051e0f05-1995-4761-af34-744fefe32537" width="49%" />
 </p>
 
+<p align="center">
+  <video src="https://github.com/user-attachments/assets/ba5398af-ee5f-4658-bb72-542c4db2bf47" controls="controls" width="100%"></video>
+</p>
+
 A powerful, full-featured terminal and dashboard for algorithmic trading, macroeconomic feeds, stock-specific searches, and LLM integration. ARCA Terminal seamlessly connects to multiple US and Indian brokers, providing live data feeds, options chains, global news, and microstructure analysis.
 
 ---
