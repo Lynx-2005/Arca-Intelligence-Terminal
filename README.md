@@ -47,15 +47,15 @@ node setup.js
 ### 4. Start the Terminal
 Once your API keys are securely stored, launch the entire application with a single command:
 ```bash
-./start.sh
+node start.js
 ```
-*This script automatically verifies your credentials, triggers any required browser-based authentication flows (like the 24-hour Fyers token exchange), boots up the backend proxy on port 3001, and launches the frontend client at `http://localhost:5173`.*
+*This cross-platform Node.js script automatically verifies your credentials, triggers any required browser-based authentication flows (like the 24-hour Fyers token exchange), boots up the backend proxy on port 3001, and launches the frontend client at `http://localhost:5173`.*
 
 ---
 
 ## 🛑 Stopping the Terminal
 
-To stop the servers gracefully, press `Ctrl + C` in the terminal window running `start.sh`.
+To stop the servers gracefully, press `Ctrl + C` in the terminal window running `start.js`.
 
 **Clean Background Port Liberation:**
 If the servers were sent to the background or if a terminal session was closed without stopping them, you can forcefully kill the processes on their respective ports:
