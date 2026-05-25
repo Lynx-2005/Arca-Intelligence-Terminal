@@ -9,9 +9,6 @@
   <img src="https://github.com/user-attachments/assets/051e0f05-1995-4761-af34-744fefe32537" width="49%" />
 </p>
 
-<p align="center">
-  <video src="https://github.com/user-attachments/assets/ba5398af-ee5f-4658-bb72-542c4db2bf47" controls="controls" width="100%"></video>
-</p>
 
 A powerful, full-featured terminal and dashboard for algorithmic trading, macroeconomic feeds, stock-specific searches, and LLM integration. ARCA Terminal seamlessly connects to multiple US and Indian brokers, providing live data feeds, options chains, global news, and microstructure analysis.
 
@@ -36,7 +33,25 @@ Before launching the terminal, ensure you have:
 2. **Ports Available**: Ports `3001` (Backend Proxy) and `5173` (Frontend Vite App) must be free.
 
 ---
+### Install Node.js
 
+- **Windows**
+  - **Winget**: `winget install OpenJS.NodeJS` (latest) or `winget install OpenJS.NodeJS.LTS` (LTS)
+  - **Chocolatey**: `choco install nodejs`
+
+- **Linux**
+  - **Version Managers (recommended)**:  
+    `curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh | bash`  
+    then:  
+    `nvm install --lts`
+
+- **macOS**
+  - **Homebrew (recommended)**: `brew install node` (latest) or `brew install node@lts` (LTS)
+  - **Version Managers (recommended)**:  
+    `curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh | bash`  
+    then:  
+    `nvm install --lts`
+  - **Installer (.pkg)**: Download from [Node.js Official Website](https://nodejs.org/)
 ## 🚀 Quick Start Guide
 
 ### 1. Clone the Repository
