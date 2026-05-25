@@ -58,7 +58,7 @@ Before launching the terminal, ensure you have:
 Open your terminal and clone the repository:
 ```bash
 git clone https://github.com/yourusername/arca-terminal.git
-cd arca-terminal
+Arca-Intelligence-Terminal
 ```
 
 ### 2. Install Dependencies
