@@ -21,7 +21,7 @@ The OFI is the net difference between aggressive buy volume ($V_{buy}$) and aggr
 > **$OFI = \sum V_{buy} - \sum V_{sell}$**
 
 ### Microstructure Regimes
-ARCA uses machine learning models to classify the current state of the order book into probability vectors:
+
 
 | Regime | Description | Indication |
 |--------|-------------|------------|
