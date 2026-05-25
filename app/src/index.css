@@ -506,7 +506,6 @@ html, body, #root {
   overflow-y: auto;
   overflow-x: hidden;
   padding-right: 24px; /* Space for the floating HUD */
-  scroll-behavior: smooth;
   height: 100%;
 }
 

@@ -558,7 +558,8 @@ Max 3 suppliers. Max 3 threats. Output ONLY valid JSON.`;
           },
           body: JSON.stringify({
             model: model,
-            max_tokens: 400,
+            max_tokens: 1500,
+            response_format: { type: 'json_object' },
             messages: [
               { role: 'system', content: 'You are an institutional equity research analyst. Output ONLY valid raw JSON, no markdown wrappers, no other text.' },
               { role: 'user', content: combinedPrompt }
@@ -1016,11 +1017,27 @@ app.get('/api/news/:ticker', async (req, res) => {
 app.get('/api/search', async (req, res) => {
   try {
     const { q, type } = req.query;
-    if (!q || q.trim().length === 0) {
+    const baseQ = (q || '').trim();
+    if (!baseQ) {
       return res.json([]);
     }
-    const result = await yahooFinance.search(q.trim(), { quotesCount: 10, newsCount: 0 });
-    let quotes = result.quotes || [];
+    
+    // Fetch base query + Indian exchanges explicitly to guarantee Indian results
+    const [resBase, resNS, resBO] = await Promise.all([
+      yahooFinance.search(baseQ, { quotesCount: 15, newsCount: 0 }).catch(() => ({ quotes: [] })),
+      baseQ.includes('.') ? Promise.resolve({ quotes: [] }) : yahooFinance.search(`${baseQ}.NS`, { quotesCount: 5, newsCount: 0 }).catch(() => ({ quotes: [] })),
+      baseQ.includes('.') ? Promise.resolve({ quotes: [] }) : yahooFinance.search(`${baseQ}.BO`, { quotesCount: 5, newsCount: 0 }).catch(() => ({ quotes: [] }))
+    ]);
+
+    let quotesMap = new Map();
+    [...(resBase.quotes || []), ...(resNS.quotes || []), ...(resBO.quotes || [])].forEach(q => {
+      if (q.isYahooFinance !== false && q.symbol) {
+        quotesMap.set(q.symbol, q);
+      }
+    });
+    
+    let quotes = Array.from(quotesMap.values());
+
     if (type && type !== 'ALL') {
       const typeMap = {
         'EQUITY': 'EQUITY',
@@ -1036,7 +1053,43 @@ app.get('/api/search', async (req, res) => {
         quotes = quotes.filter(q => q.quoteType === mappedType);
       }
     }
-    const formatted = quotes.slice(0, 5).map(q => ({
+
+    // Rank quoteTypes to prioritize Equity, ETF, Index
+    const typeRank = {
+      'EQUITY': 1,
+      'ETF': 2,
+      'INDEX': 3,
+      'CRYPTOCURRENCY': 4,
+      'CURRENCY': 5,
+      'COMMODITY': 6,
+      'MUTUALFUND': 7,
+      'OPTION': 8
+    };
+
+    const indExchanges = ['NSI', 'BSE', 'Bombay', 'National Stock Exchange of India', 'NSE'];
+
+    quotes.sort((a, b) => {
+      // 1. Exact ticker match (ignoring exchange suffix)
+      const aExact = a.symbol.split('.')[0].toUpperCase() === baseQ.toUpperCase() ? 1 : 0;
+      const bExact = b.symbol.split('.')[0].toUpperCase() === baseQ.toUpperCase() ? 1 : 0;
+      
+      // 2. Indian Exchange boost
+      const aInd = indExchanges.includes(a.exchange) || indExchanges.includes(a.exchDisp) ? 1 : 0;
+      const bInd = indExchanges.includes(b.exchange) || indExchanges.includes(b.exchDisp) ? 1 : 0;
+
+      const rankA = typeRank[a.quoteType] || 99;
+      const rankB = typeRank[b.quoteType] || 99;
+      
+      const scoreA = (aExact * 100) + (aInd * 50) - rankA;
+      const scoreB = (bExact * 100) + (bInd * 50) - rankB;
+
+      if (scoreA !== scoreB) {
+        return scoreB - scoreA;
+      }
+      return (b.score || 0) - (a.score || 0); // fallback to Yahoo's score
+    });
+
+    const formatted = quotes.slice(0, 15).map(q => ({
       symbol: q.symbol,
       shortname: q.shortname || '',
       longname: q.longname || '',

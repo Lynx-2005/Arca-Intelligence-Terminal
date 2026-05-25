@@ -81,6 +81,7 @@ const Watchlist = () => {
       onSelect={handleSelectSymbol}
       placeholder="ADD SYMBOL..."
       width="100px"
+      dropdownAlign="right"
     />
   );
 

@@ -103,30 +103,42 @@ async function getFyersOptions(rawTicker) {
   else if (ticker === '^NSEBANK' || ticker === 'BANKNIFTY') symbol = 'NSE:NIFTYBANK-INDEX';
   else if (ticker === 'MIDCPNIFTY') symbol = 'NSE:MIDCPNIFTY-INDEX';
   else if (ticker === 'FINNIFTY') symbol = 'NSE:FINNIFTY-INDEX';
-  else symbol = `NSE:${ticker}-EQ`;
-
+  else {
+    let cleanTicker = ticker;
+    if (cleanTicker.endsWith('.NS')) cleanTicker = cleanTicker.replace('.NS', '');
+    else if (cleanTicker.endsWith('.BO')) cleanTicker = cleanTicker.replace('.BO', '');
+    symbol = `NSE:${cleanTicker}-EQ`;
+  }
   try {
-    const res = await axios.post('https://api-t1.fyers.in/data/optionchain', {
-      symbol, strikecount: 100
-    }, {
-      headers: { 'Authorization': `${process.env.FYERS_APP_ID}:${process.env.FYERS_ACCESS_TOKEN}` }
-    });
-    if (res.data && res.data.data && res.data.data.optionsChain) {
-      const chain = res.data.data.optionsChain;
-      const expiries = [...new Set(chain.map(o => o.expiryData))].sort();
-      if (expiries.length === 0) return [];
-      const nearestExp = normalizeDateStr(expiries[0]);
-      const expChain = chain.filter(c => normalizeDateStr(c.expiryData) === nearestExp);
-      const expLabel = getExpLabel(rawTicker);
+    const { fyersModel } = require('fyers-api-v3');
+    const fyers = new fyersModel();
+    fyers.setAppId(process.env.FYERS_APP_ID);
+    fyers.setAccessToken(process.env.FYERS_ACCESS_TOKEN);
+
+    const res = await fyers.getOptionChain({ symbol, strikecount: 50 });
+
+    if (res && res.data && res.data.optionsChain) {
+      const chain = res.data.optionsChain;
+      const expiriesList = res.data.expiryData;
+      let nearestExp = '';
+      if (expiriesList && expiriesList.length > 0) {
+         nearestExp = expiriesList[0].date;
+      }
+      
       const callsAndPuts = [];
-      expChain.forEach(opt => {
-        if (opt.callOption && opt.callOption.openInterest > 0)
-          callsAndPuts.push({ strike: opt.strikePrice, type: 'C', oi: opt.callOption.openInterest });
-        if (opt.putOption && opt.putOption.openInterest > 0)
-          callsAndPuts.push({ strike: opt.strikePrice, type: 'P', oi: opt.putOption.openInterest });
+      chain.forEach(opt => {
+        if (!opt.option_type || !opt.strike_price) return;
+        const type = opt.option_type === 'CE' ? 'C' : opt.option_type === 'PE' ? 'P' : null;
+        if (type && opt.oi > 0) {
+          callsAndPuts.push({ strike: opt.strike_price, type, oi: opt.oi });
+        }
       });
+      
+      const expLabel = getExpLabel(ticker);
       const levels = buildLevels(callsAndPuts, 'Fyers', nearestExp, expLabel);
       return levels.length > 0 ? levels : null;
+    } else if (res && res.message) {
+      console.error('[Fyers OptionChain Error]', res.message);
     }
   } catch (err) {
     console.error('Fyers Option Chain Error:', err.message);

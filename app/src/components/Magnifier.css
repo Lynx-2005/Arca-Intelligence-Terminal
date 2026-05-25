@@ -47,6 +47,11 @@
   transform-origin: 0 0;
 }
 
+.magnifier-mirror * {
+  animation: none !important;
+  transition: none !important;
+}
+
 /* Convex glass reflection overlay */
 .magnifier-glass-glare {
   position: absolute;

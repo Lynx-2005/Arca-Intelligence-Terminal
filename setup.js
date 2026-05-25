@@ -112,6 +112,11 @@ async function configureFyers(env) {
   if (p.isCancel(want)) { p.cancel('Cancelled.'); process.exit(0); }
   if (!want) return;
 
+  p.note(
+    `When creating your Fyers app, set the redirect URL to:${formatUrl('http://127.0.0.1:3000/callback')}After saving your API keys, run:\n  npm run auth:fyers\n\nThis will open your browser for OAuth login.`,
+    'FYERS OAUTH'
+  );
+
   await getField(env, 'FYERS_APP_ID', 'Fyers App ID', {
     required: true,
     placeholder: 'XXXXXXXXXX-100',
@@ -121,11 +126,6 @@ async function configureFyers(env) {
     required: true,
     placeholder: 'XXXXXXXXXXXXXXXX',
   });
-
-  p.note(
-    `When creating your Fyers app, set the redirect URL to:${formatUrl('http://127.0.0.1:3000/callback')}After saving your API keys, run:\n  npm run auth:fyers\n\nThis will open your browser for OAuth login.`,
-    'FYERS OAUTH'
-  );
 }
 
 async function configureKite(env) {
@@ -144,6 +144,11 @@ async function configureKite(env) {
   if (p.isCancel(want)) { p.cancel('Cancelled.'); process.exit(0); }
   if (!want) return;
 
+  p.note(
+    `When creating your Kite app, set the redirect URL to:${formatUrl('http://127.0.0.1:3000/callback')}After saving your API keys, run:\n  npm run auth:kite\n\nThis will open your browser for OAuth login.`,
+    'KITE OAUTH'
+  );
+
   await getField(env, 'KITE_API_KEY', 'Kite API Key', {
     required: true,
     placeholder: 'XXXXXXXXXXXXXXXX',
@@ -153,11 +158,6 @@ async function configureKite(env) {
     required: true,
     placeholder: 'XXXXXXXXXXXXXXXX',
   });
-
-  p.note(
-    `When creating your Kite app, set the redirect URL to:${formatUrl('http://127.0.0.1:3000/callback')}After saving your API keys, run:\n  npm run auth:kite\n\nThis will open your browser for OAuth login.`,
-    'KITE OAUTH'
-  );
 }
 
 async function configureAngel(env) {
@@ -264,6 +264,11 @@ async function configureDhan(env) {
   if (p.isCancel(want)) { p.cancel('Cancelled.'); process.exit(0); }
   if (!want) return;
 
+  p.note(
+    'Dhan requires a static IP whitelist for order endpoints.\nTo generate your access token:\n  1. Go to https://web.dhan.co\n  2. Navigate to My Profile → Access DhanHQ APIs\n  3. Generate and copy your access token\n  4. Paste it below',
+    'DHAN AUTH'
+  );
+
   await getField(env, 'DHAN_CLIENT_ID', 'Dhan Client ID', {
     required: true,
     placeholder: 'Your Dhan client ID',
@@ -273,11 +278,6 @@ async function configureDhan(env) {
     required: true,
     placeholder: 'Your Dhan API access token',
   });
-
-  p.note(
-    'Dhan requires a static IP whitelist for order endpoints.\nTo generate your access token:\n  1. Go to https://web.dhan.co\n  2. Navigate to My Profile → Access DhanHQ APIs\n  3. Generate and copy your access token\n  4. Paste it above',
-    'DHAN AUTH'
-  );
 }
 
 async function configureUpstox(env) {
@@ -296,6 +296,11 @@ async function configureUpstox(env) {
   if (p.isCancel(want)) { p.cancel('Cancelled.'); process.exit(0); }
   if (!want) return;
 
+  p.note(
+    `When creating your Upstox app, set the redirect URL to:${formatUrl('http://127.0.0.1:3000/callback')}After saving your API keys, run:\n  npm run auth:upstox\n\nThis will open your browser for OAuth login.`,
+    'UPSTOX OAUTH'
+  );
+
   await getField(env, 'UPSTOX_API_KEY', 'Upstox API Key', {
     required: true,
     placeholder: 'Your Upstox API key',
@@ -305,11 +310,6 @@ async function configureUpstox(env) {
     required: true,
     placeholder: 'Your Upstox API secret',
   });
-
-  p.note(
-    `When creating your Upstox app, set the redirect URL to:${formatUrl('http://127.0.0.1:3000/callback')}After saving your API keys, run:\n  npm run auth:upstox\n\nThis will open your browser for OAuth login.`,
-    'UPSTOX OAUTH'
-  );
 }
 
 async function configureAlpaca(env) {

@@ -227,34 +227,66 @@ class FyersProvider extends BaseProvider {
     const fyersSym = normalizeFyersTicker(ticker);
     const connect = () => {
       if (this.ws) { try { this.ws.close(); } catch(e) {} this.ws = null; }
-      this.ws = new WebSocket(`wss://api-t1.fyers.in/data/?access_token=${process.env.FYERS_APP_ID}:${process.env.FYERS_ACCESS_TOKEN}`);
-      this.ws.on('open', () => {
-        this._reconnectCount = 0;
-        this.broadcastStatus(ticker, { state: 'live', message: `${this.name} LIVE (${ticker})` });
-        this.ws.send(JSON.stringify({ T: "SUB_L2", symbols: [fyersSym] }));
-      });
-      this.ws.on('message', (data) => {
-        try {
-          const parsed = JSON.parse(data);
-          const tickData = parsed.d && (parsed.d[ticker] || parsed.d[fyersSym]);
-          if (tickData) {
-            if (tickData.bids || tickData.asks) this.broadcastDepth(ticker, tickData);
-            if (tickData.ltp > 0) {
-              const isBuyerMaker = this.inferAggressor(ticker, tickData.ltp);
-              this.broadcastTrade(ticker, { p: tickData.ltp, q: tickData.ltq || 0, T: tickData.ltt || Date.now(), m: isBuyerMaker });
-              this.getMarketState(ticker).lastPrice = tickData.ltp;
-            }
-          }
-        } catch (e) {}
-      });
-      this.ws.on('error', (err) => this.broadcastError(ticker, err.message));
-      this.ws.on('close', () => { this.ws = null; this._scheduleReconnect(ticker, connect); });
+      try {
+        const { fyersDataSocket } = require('fyers-api-v3');
+        const token = `${process.env.FYERS_APP_ID}:${process.env.FYERS_ACCESS_TOKEN}`;
+        this.ws = new fyersDataSocket(token, ''); 
+        
+        this.ws.on('connect', () => {
+          this._reconnectCount = 0;
+          this.broadcastStatus(ticker, { state: 'live', message: `${this.name} LIVE (${ticker})` });
+          this.ws.subscribe([fyersSym], 'SymbolUpdate');
+          this.ws.subscribe([fyersSym], 'DepthUpdate');
+        });
+
+        this.ws.on('message', (msg) => {
+          try {
+            const dataArr = Array.isArray(msg) ? msg : [msg];
+            dataArr.forEach(tickData => {
+              if (tickData.symbol && tickData.symbol !== fyersSym) return;
+              if (tickData.bids || tickData.asks) {
+                const formattedDepth = { bids: [], asks: [] };
+                if (tickData.bids) formattedDepth.bids = tickData.bids.map(b => [b.price, b.volume]);
+                if (tickData.asks) formattedDepth.asks = tickData.asks.map(a => [a.price, a.volume]);
+                this.broadcastDepth(ticker, formattedDepth);
+              }
+              if (tickData.ltp > 0) {
+                const isBuyerMaker = this.inferAggressor(ticker, tickData.ltp);
+                this.broadcastTrade(ticker, { 
+                  p: tickData.ltp, 
+                  q: tickData.last_traded_qty || tickData.vtt || 0, 
+                  T: tickData.exchange_time || tickData.ltt || Date.now(), 
+                  m: isBuyerMaker 
+                });
+                this.getMarketState(ticker).lastPrice = tickData.ltp;
+              }
+            });
+          } catch(e) {}
+        });
+
+        this.ws.on('error', (err) => this.broadcastError(ticker, err.message || 'Fyers Socket Error'));
+        this.ws.on('close', () => {
+          this.broadcastStatus(ticker, { state: 'disconnected', message: `${this.name} DISCONNECTED` });
+          this.ws = null;
+          this._scheduleReconnect(ticker, connect);
+        });
+
+        this.ws.connect();
+      } catch (err) {
+        this.broadcastError(ticker, `Fyers SDK Error: ${err.message}`);
+      }
     };
     connect();
   }
+  
   _doUnsubscribe(ticker) {
     const fyersSym = normalizeFyersTicker(ticker);
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify({ T: "UNSUB_L2", symbols: [fyersSym] }));
+    if (this.ws && typeof this.ws.unsubscribe === 'function') {
+      try {
+        this.ws.unsubscribe([fyersSym], 'SymbolUpdate');
+        this.ws.unsubscribe([fyersSym], 'DepthUpdate');
+      } catch(e) {}
+    }
     this._cancelReconnect();
   }
 }
